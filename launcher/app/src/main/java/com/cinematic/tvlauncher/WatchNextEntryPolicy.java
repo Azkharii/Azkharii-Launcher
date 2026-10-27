@@ -4,6 +4,15 @@ package com.cinematic.tvlauncher;
 public final class WatchNextEntryPolicy {
     private WatchNextEntryPolicy() {}
 
+    /** A real provider title can be displayed even when this TV exposes no supported resume route. */
+    public static boolean hasDisplayableTitle(String title) {
+        if (title == null) return false;
+        String normalizedTitle = title.trim();
+        return !normalizedTitle.isEmpty()
+                && !"unknown".equalsIgnoreCase(normalizedTitle)
+                && !"null".equalsIgnoreCase(normalizedTitle);
+    }
+
     /** A resume card requires a real title and at least one usable route to its publisher. */
     public static boolean hasDisplayableData(String title, String intentUri) {
         return hasDisplayableData(title, intentUri, null);
