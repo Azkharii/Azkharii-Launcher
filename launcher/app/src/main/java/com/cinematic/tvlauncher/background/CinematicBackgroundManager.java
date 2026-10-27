@@ -21,6 +21,8 @@ import com.cinematic.tvlauncher.config.LauncherConfig;
 import java.io.File;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * CinematicBackgroundManager — Controls Google Photos background rotation,
@@ -38,9 +40,13 @@ public class CinematicBackgroundManager {
     private final Handler mainHandler;
     private final ExecutorService decodeExecutor;
 
-    private boolean isVisible = false;
+    private volatile boolean isVisible = false;
+    private volatile boolean destroyed = false;
     private boolean isFrontA = true;
     private ValueAnimator motionAnimator = null;
+    private AnimatorSet crossfadeAnimator;
+    private Future<?> pendingDecode;
+    private final AtomicLong workGeneration = new AtomicLong();
     private boolean crossfadeInProgress = false;
     private Runnable backgroundChangedListener;
 
@@ -84,7 +90,9 @@ public class CinematicBackgroundManager {
     }
 
     public void loadLocalBackgrounds() {
-        decodeExecutor.execute(() -> {
+        if (destroyed) return;
+        try {
+            decodeExecutor.execute(() -> {
             try {
                 java.util.List<File> images = new java.util.ArrayList<>();
                 File picturesDir = activity.getExternalFilesDir("CinematicBackgrounds");
@@ -103,6 +111,7 @@ public class CinematicBackgroundManager {
                     }
                 }
 
+                if (destroyed || Thread.currentThread().isInterrupted()) return;
                 queue.setImages(images);
                 Log.i(TAG, "Loaded " + images.size() + " local background images");
                 // Do not force a wallpaper swap when returning from a dialog or Settings.
@@ -110,7 +119,10 @@ public class CinematicBackgroundManager {
             } catch (Exception e) {
                 Log.w(TAG, "Error discovering local background photos", e);
             }
-        });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // Activity is already being destroyed.
+        }
     }
 
     private boolean isSupportedImage(File file) {
@@ -121,7 +133,9 @@ public class CinematicBackgroundManager {
     }
 
     public void onResume() {
+        if (destroyed) return;
         isVisible = true;
+        workGeneration.incrementAndGet();
         // Trigger initial rotation or check
         mainHandler.removeCallbacks(rotationRunnable);
         mainHandler.post(rotationRunnable);
@@ -133,7 +147,13 @@ public class CinematicBackgroundManager {
 
     public void onPause() {
         isVisible = false;
+        workGeneration.incrementAndGet();
         mainHandler.removeCallbacks(rotationRunnable);
+        if (pendingDecode != null) {
+            pendingDecode.cancel(true);
+            pendingDecode = null;
+        }
+        if (crossfadeAnimator != null) crossfadeAnimator.cancel();
 
         if (motionAnimator != null) {
             motionAnimator.cancel();
@@ -142,11 +162,14 @@ public class CinematicBackgroundManager {
     }
 
     public void onDestroy() {
+        destroyed = true;
         onPause();
-        decodeExecutor.shutdown();
+        decodeExecutor.shutdownNow();
     }
 
     private void rotateToNext() {
+        if (!isVisible || destroyed) return;
+        if (pendingDecode != null && !pendingDecode.isDone()) return;
         if (queue.isEmpty()) {
             // Retain default or last valid background; no black frame per Annex C.2
             return;
@@ -155,16 +178,29 @@ public class CinematicBackgroundManager {
         File nextFile = queue.getNextRandomImage();
         if (nextFile == null) return;
 
-        decodeExecutor.execute(() -> {
-            Bitmap bitmap = decodeSampledBitmap(nextFile);
-            if (bitmap != null) {
-                mainHandler.post(() -> applyCrossfade(bitmap));
-            }
-        });
+        final long generation = workGeneration.get();
+        try {
+            pendingDecode = decodeExecutor.submit(() -> {
+                if (Thread.currentThread().isInterrupted() || !isVisible || destroyed) return;
+                Bitmap bitmap = decodeSampledBitmap(nextFile);
+                if (bitmap == null) return;
+                if (Thread.currentThread().isInterrupted() || !isVisible || destroyed
+                        || generation != workGeneration.get()) {
+                    bitmap.recycle();
+                    return;
+                }
+                mainHandler.post(() -> {
+                    if (!isVisible || destroyed || generation != workGeneration.get()) bitmap.recycle();
+                    else applyCrossfade(bitmap);
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // The launcher is shutting down; no background work should be restarted.
+        }
     }
 
     private void applyCrossfade(Bitmap newBitmap) {
-        if (!isVisible || activity.isFinishing() || activity.isDestroyed()) {
+        if (!isVisible || destroyed || activity.isFinishing() || activity.isDestroyed()) {
             newBitmap.recycle();
             return;
         }
@@ -199,9 +235,11 @@ public class CinematicBackgroundManager {
                 front.setScaleY(1f);
                 isFrontA = !isFrontA;
                 crossfadeInProgress = false;
-                notifyBackgroundChanged();
+                if (crossfadeAnimator == crossfade) crossfadeAnimator = null;
+                if (isVisible && !destroyed) notifyBackgroundChanged();
             }
         });
+        crossfadeAnimator = crossfade;
         crossfade.start();
     }
 
@@ -241,6 +279,7 @@ public class CinematicBackgroundManager {
      */
     private Bitmap decodeSampledBitmap(File file) {
         try {
+            if (Thread.currentThread().isInterrupted() || destroyed) return null;
             DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
             int reqWidth = metrics.widthPixels > 0 ? metrics.widthPixels : 1920;
             int reqHeight = metrics.heightPixels > 0 ? metrics.heightPixels : 1080;
@@ -249,6 +288,7 @@ public class CinematicBackgroundManager {
             options.inJustDecodeBounds = true;
             BitmapFactory.decodeFile(file.getAbsolutePath(), options);
 
+            if (Thread.currentThread().isInterrupted() || destroyed) return null;
             options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight);
             options.inJustDecodeBounds = false;
             options.inPreferredConfig = Bitmap.Config.RGB_565; // Memory efficient for TV wallpapers
