@@ -2,7 +2,9 @@ plugins {
     id 'com.android.application'
 }
 
-def ciVersionCode = (System.getenv('GITHUB_RUN_NUMBER')
+// Release workflows pass APP_VERSION_CODE to keep public release tags and APK metadata in sync.
+def ciVersionCode = (System.getenv('APP_VERSION_CODE')
+        ?: System.getenv('GITHUB_RUN_NUMBER')
         ?: project.findProperty('APP_VERSION_CODE') ?: '1').toString().toInteger()
 def ciVersionName = (System.getenv('APP_VERSION_NAME') ?: "1.0.${ciVersionCode}").toString()
 def releaseKeystorePath = System.getenv('RELEASE_KEYSTORE_PATH')
