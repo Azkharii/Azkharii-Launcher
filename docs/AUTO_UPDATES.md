@@ -1,36 +1,39 @@
-# Automatic versioning and in-app updates
+# Actualizaciones automáticas de Cinematic TV
 
-## Current implementation
+## Estado actual
 
-- Every workflow build uses the GitHub Actions run number as Android `versionCode`, with `versionName` set to `1.0.N`.
-- The production release workflow uses a matching `v1.0.N` tag.
-- A non-debug launcher checks the latest published release on resume and every six hours while the launcher is visible.
-- It validates the expected APK name, public SHA-256 digest, package ID and version before opening Android's package installer.
-- The actual package installation remains user-approved by Android. Debug builds intentionally do not self-update.
+- El repositorio público es `Azkharii/Azkharii-Launcher`.
+- `UpdateManager` consulta `https://api.github.com/repos/Azkharii/Azkharii-Launcher/releases/latest`; no requiere un token de GitHub y no debe incluirse ningún secreto en el APK.
+- El actualizador valida el nombre del APK, el SHA-256 publicado por GitHub, el identificador del paquete y el código de versión antes de abrir el instalador de Android.
+- Android siempre solicita la aprobación final de instalación; no se intenta instalar silenciosamente.
+- **Todavía no hay una Release publicada.** El workflow de publicación necesita los cuatro secretos de firma persistente descritos en `docs/RELEASING.md`.
+- El actualizador se ejecuta únicamente en la variante estable. La variante `debug` no se autoactualiza.
 
-## Required one-time setup
+## Dos requisitos distintos para actualizar encima de una instalación existente
 
-### 1. Configure a stable signing key
+1. **Identidad del paquete:** Android solo puede actualizar una instalación si el APK tiene el mismo `applicationId`. La variante debug usa `com.cinematic.tvlauncher.debug`; la estable usa `com.cinematic.tvlauncher`. No son actualizaciones entre sí.
+2. **Firma:** el APK nuevo debe estar firmado con el mismo certificado que el APK instalado. Los runners de GitHub Actions generan por defecto su propia clave debug; por eso no se debe asumir que dos artefactos debug de ejecuciones diferentes se pueden instalar uno encima del otro.
 
-Android only accepts an in-place app update when the application ID matches and the APK is signed with the same certificate (or a valid signing-key rotation). Keep the private key out of Git.
+El `versionCode` nuevo debe ser superior al instalado. En una instalación manual por ADB, `adb install -r archivo.apk` solicita reemplazar la aplicación existente, pero no evita los errores por firma incompatible ni por un `versionCode` inferior.
 
-Create a release keystore locally and add the following secrets under **Settings → Secrets and variables → Actions**:
+## Publicación estable
 
-- `ANDROID_KEYSTORE_BASE64`: base64-encoded keystore file
-- `ANDROID_KEYSTORE_PASSWORD`: keystore password
-- `ANDROID_KEY_ALIAS`: signing alias
-- `ANDROID_KEY_PASSWORD`: key password
+El workflow `.github/workflows/release.yml` se ejecuta en `main`. Con la clave persistente configurada, compila `cinematic-tv-launcher-release.apk`, publica un tag `v1.0.N` y adjunta el APK y su checksum SHA-256 a GitHub Releases.
 
-The keystore must remain stable for all future releases. The debug application uses a `.debug` application ID and a CI debug key, so it is not the starting package for in-place production updates. Install the signed production APK once.
+Antes de activar la primera publicación hay que determinar qué certificado firma la aplicación que ya está instalada en el televisor. No se debe sustituir la firma ni cambiar de variante a ciegas, porque Android podría rechazar la actualización y la desinstalación puede borrar los datos locales.
 
-### 2. Publish a publicly readable release feed
+Los cuatro secretos necesarios son:
 
-**The current GitHub repository is private.** GitHub's latest-release endpoint returns 404 to an anonymous client for a private repository. The television app cannot query private releases without credentials, and embedding a personal access token in the APK would disclose that token. This workflow deliberately does not embed credentials or change repository visibility.
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
 
-To activate in-app discovery, either make the repository public or host signed release metadata/APKs on a separate public feed and point `UpdateManager` to that feed. Public releases are published automatically only from `main`, and only when signing secrets are configured.
+Si el launcher instalado en el televisor es la variante debug, primero hay que decidir cómo conservar su identidad y certificado. Publicar una Release estable con el identificador `com.cinematic.tvlauncher` no actualizará `com.cinematic.tvlauncher.debug`.
 
-### 3. Allow Android's installer
+## Política de seguridad
 
-For the first update Android may ask you to permit Cinematic TV to initiate package installations. After enabling that permission, the app opens Android's installer for the APK it already verified. Approve the installation in Android; no silent install is attempted.
-
-Pushing to `main` publishes `cinematic-tv-launcher-release.apk` under `v1.0.N` when the signing and public-feed prerequisites are met. Pushing to a feature branch still produces a debug APK artifact only.
+- No guardar keystores, contraseñas ni tokens en el repositorio.
+- No incrustar un Personal Access Token en el APK.
+- No desinstalar la versión instalada para “forzar” una actualización sin confirmar antes cómo se preservarán los datos y la firma.
+- No afirmar que una Release está disponible hasta comprobarla en GitHub.
