@@ -8,6 +8,7 @@ import android.util.Log;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.text.TextUtils;
 import android.util.AttributeSet;
@@ -66,6 +67,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         }
     };
     private static final LruCache<String, int[]> ARTWORK_PALETTE_CACHE = new LruCache<>(96);
+    private static final LruCache<String, Integer> APPLICATION_ICON_ACCENTS = new LruCache<>(128);
     private static final int DEFAULT_ACCENT = Color.rgb(168, 232, 255);
     private static final int[] DEFAULT_PALETTE = {
             Color.rgb(80, 170, 255), Color.rgb(110, 190, 255),
@@ -135,12 +137,39 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         return selectedIndex;
     }
 
-    /** Returns the blended poster-derived accent for the currently focused card. */
+    /**
+     * Returns the publisher application's icon color for the navigation dot.
+     * Poster art still controls the poster frame glow, never the navigation marker.
+     */
     public int getAccentColorForTarget(View target) {
         Object tag = target == null ? null : target.getTag();
-        if (tag instanceof MediaItem) return ((MediaItem) tag).accentColor;
-        if (tag instanceof CardGlowState) return ((CardGlowState) tag).item.accentColor;
-        return DEFAULT_ACCENT;
+        MediaItem item = null;
+        if (tag instanceof MediaItem) {
+            item = (MediaItem) tag;
+        } else if (tag instanceof CardGlowState) {
+            item = ((CardGlowState) tag).item;
+        }
+        if (item == null || item.entry == null) return IconAccentSampler.sample(null);
+
+        String packageName = item.entry.getPackageName();
+        if (packageName == null || packageName.trim().isEmpty()) {
+            return IconAccentSampler.sample(null);
+        }
+        String key = packageName.trim();
+        Integer cached = APPLICATION_ICON_ACCENTS.get(key);
+        if (cached != null) return cached;
+
+        int accent = IconAccentSampler.sample(null);
+        try {
+            Drawable appIcon = getContext().getPackageManager().getApplicationIcon(key);
+            accent = IconAccentSampler.sample(appIcon);
+        } catch (Exception e) {
+            // Some TV provider rows can outlive an app install. Use a neutral marker,
+            // not the wallpaper or the poster's colors, when the publisher icon is absent.
+            Log.d(TAG, "Publisher icon is unavailable for " + key, e);
+        }
+        APPLICATION_ICON_ACCENTS.put(key, accent);
+        return accent;
     }
 
     @Override
