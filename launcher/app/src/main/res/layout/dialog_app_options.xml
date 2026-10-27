@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="22dp"
+    android:background="@drawable/liquid_glass_dialog_bg">
+
+    <TextView
+        android:id="@+id/app_options_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:textColor="@color/text_primary"
+        android:textSize="23sp"
+        android:fontFamily="sans-serif-medium"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:paddingBottom="16dp" />
+
+    <TextView
+        android:id="@+id/app_option_pin"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp"
+        android:text="@string/app_option_pin"
+        android:textColor="@color/text_primary"
+        android:background="@drawable/liquid_glass_action_bg"
+        android:focusable="true"
+        android:clickable="true"
+        android:nextFocusDown="@id/app_option_details" />
+
+    <TextView
+        android:id="@+id/app_option_details"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="7dp"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp"
+        android:text="@string/app_option_details"
+        android:textColor="@color/text_primary"
+        android:background="@drawable/liquid_glass_action_bg"
+        android:focusable="true"
+        android:clickable="true"
+        android:nextFocusUp="@id/app_option_pin"
+        android:nextFocusDown="@id/app_option_uninstall" />
+
+    <TextView
+        android:id="@+id/app_option_uninstall"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="7dp"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="16dp"
+        android:text="@string/app_option_uninstall"
+        android:textColor="@color/text_primary"
+        android:background="@drawable/liquid_glass_action_bg"
+        android:focusable="true"
+        android:clickable="true"
+        android:nextFocusUp="@id/app_option_details"
+        android:nextFocusDown="@id/app_option_cancel" />
+
+    <TextView
+        android:id="@+id/app_option_cancel"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginTop="7dp"
+        android:gravity="center"
+        android:text="@string/dialog_close"
+        android:textColor="@color/text_secondary"
+        android:background="@drawable/liquid_glass_action_bg"
+        android:focusable="true"
+        android:clickable="true"
+        android:nextFocusUp="@id/app_option_uninstall" />
+</LinearLayout>

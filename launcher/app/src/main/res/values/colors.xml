@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+
+    <!-- Scrim Gradients (Annex C.1: max 35% top, max 55% bottom) -->
+    <color name="scrim_top_start">#59000000</color> <!-- 35% opacity black -->
+    <color name="scrim_top_end">#00000000</color>
+
+    <color name="scrim_bottom_start">#00000000</color>
+    <color name="scrim_bottom_end">#8C000000</color> <!-- 55% opacity black -->
+
+
+    <color name="text_primary">#FFFFFFFF</color>
+    <color name="text_secondary">#B3FFFFFF</color>
+</resources>

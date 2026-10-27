@@ -1,0 +1,1584 @@
+package com.cinematic.tvlauncher;
+
+import android.app.AlertDialog;
+import android.app.Dialog;
+import android.content.pm.PackageManager;
+import android.hardware.display.DisplayManager;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.drawable.Drawable;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
+import android.content.SharedPreferences;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.text.format.DateFormat;
+import android.util.Log;
+import android.view.Display;
+import android.view.Window;
+import android.view.Gravity;
+import android.view.KeyEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.animation.DecelerateInterpolator;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.RelativeLayout;
+import android.widget.TextView;
+import android.widget.Toast;
+import android.media.tv.TvView;
+
+import androidx.appcompat.app.AppCompatActivity;
+
+import com.cinematic.tvlauncher.background.CinematicBackgroundManager;
+import com.cinematic.tvlauncher.carousel.AppCarouselView;
+import com.cinematic.tvlauncher.carousel.ContinueWatchingWheelView;
+import com.cinematic.tvlauncher.UpdateManager;
+import com.cinematic.tvlauncher.config.LauncherConfig;
+import com.cinematic.tvlauncher.controls.TvControlManager;
+import com.cinematic.tvlauncher.discovery.AppDiscoveryManager;
+import com.cinematic.tvlauncher.model.AppItem;
+import com.cinematic.tvlauncher.navigation.FocusNavigationController;
+import com.cinematic.tvlauncher.navigation.PinnedWheelSlotOrder;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.List;
+import java.util.Locale;
+import java.util.ArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import android.graphics.Color;
+
+/**
+ * MainActivity — Central Home activity for Cinematic Android TV Launcher.
+ * Implements persistent HOME lifecycle, local custom wallpaper rotation,
+ * 3D bottom carousel, and deterministic remote focus.
+ */
+public class MainActivity extends AppCompatActivity implements AppCarouselView.OnCarouselSelectionListener {
+    private static final String TAG = "MainActivity";
+    private static final String PREFS_NAME = "cinematic_launcher_prefs";
+    private static final String KEY_LAST_APP_INDEX = "last_app_index";
+    private static final String KEY_LAST_APP_PACKAGE = "last_app_package";
+    private static final String KEY_PINNED_APPS = "pinned_apps";
+    private static final String KEY_TV_LISTINGS_PERMISSION_REQUESTED = "tv_listings_permission_requested";
+    private static final String PERMISSION_READ_TV_LISTINGS = "android.permission.READ_TV_LISTINGS";
+    private static final int REQUEST_TV_LISTINGS_PERMISSION = 4701;
+    private static final ExecutorService HUD_COLOR_EXECUTOR = Executors.newSingleThreadExecutor();
+
+    private CinematicBackgroundManager backgroundManager;
+    private AppDiscoveryManager discoveryManager;
+    private TvControlManager controlManager;
+    private FocusNavigationController focusController;
+    private LauncherConfig launcherConfig;
+
+    private TextView tvClock;
+    private TextView tvDate;
+    private TextView tvWeather;
+    private int hudColorGeneration = 0;
+    private ValueAnimator hudColorAnimator;
+    private GradientDrawable weatherGlassBackground;
+    private int currentHudAccent = Color.rgb(168, 232, 255);
+    private UpdateManager updateManager;
+    private WeatherWidgetManager weatherWidgetManager;
+    private TextView tvFocusedAppLabel;
+    private AppCarouselView carouselView;
+    private View safeContainer;
+    private View libraryOverlay;
+    private AppCarouselView libraryCarousel;
+    private TextView librarySelectedLabel;
+    private ContinueWatchingWheelView continueWatchingWheel;
+    private TextView continueWatchingHeading;
+    private FrameLayout rootContainer;
+    private FrameLayout pinnedAppsWheel;
+    private FrameLayout pinnedAppsScroll;
+    private View focusPositionDot;
+    private GradientDrawable focusPositionDotBackground;
+    private boolean focusPositionUsesSelectionAccent = false;
+    // Reuse geometry buffers: this method runs on every carousel animation frame.
+    private final android.graphics.Rect focusVisibleRect = new android.graphics.Rect();
+    private final int[] focusRootLocation = new int[2];
+    private final List<AppItem> pinnedWheelItems = new java.util.ArrayList<>();
+    private final List<ImageView> pinnedWheelSlotViews = new ArrayList<>();
+    private int pinnedWheelSelectedIndex = 0;
+    private boolean pinnedWheelAnimating = false;
+    private boolean rebuildingPinnedWheel = false;
+    private static final int PINNED_WHEEL_VISIBLE_ITEMS = 5;
+    private boolean libraryVisible = false;
+    private boolean watchNextPermissionRequestInFlight = false;
+    private boolean optionsOpenedFromPinnedWheel = false;
+    private int optionsPinnedIndex = -1;
+
+    private BroadcastReceiver timeTickReceiver;
+
+    private DisplayManager displayManager;
+    private boolean displayListenerRegistered = false;
+    private int lastLoggedDisplayModeId = -1;
+    private float lastLoggedRefreshRate = -1f;
+    private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
+        @Override public void onDisplayAdded(int displayId) {}
+        @Override public void onDisplayRemoved(int displayId) {}
+        @Override public void onDisplayChanged(int displayId) {
+            if (displayId == Display.DEFAULT_DISPLAY) logCurrentDisplayMode("display-change");
+        }
+    };
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        applyPreferredDisplayMode();
+
+        launcherConfig = LauncherConfig.loadFromResources(this);
+        discoveryManager = new AppDiscoveryManager(this);
+        updateManager = new UpdateManager(this);
+
+        initViews();
+        setupClockReceiver();
+        loadApps();
+        setupLibraryOverlay();
+
+        // loadApps restores the app by package identity and defaults to the third recent card.
+        focusController.recordSelectedApp(carouselView.getSelectedIndex());
+        carouselView.requestFocus();
+    }
+
+    private void initViews() {
+        ImageView bgImageA = findViewById(R.id.bg_image_a);
+        ImageView bgImageB = findViewById(R.id.bg_image_b);
+        tvClock = findViewById(R.id.tv_clock);
+        tvDate = findViewById(R.id.tv_date);
+        tvWeather = findViewById(R.id.tv_weather);
+        weatherWidgetManager = new WeatherWidgetManager(this, tvWeather);
+        tvFocusedAppLabel = findViewById(R.id.tv_focused_app_label);
+        carouselView = findViewById(R.id.app_carousel);
+        // Show exactly five cards: selected in the middle, two neighbors on each side.
+        carouselView.setMaxVisibleCardDistance(2);
+        safeContainer = findViewById(R.id.safe_container);
+        rootContainer = findViewById(R.id.root_container);
+        libraryOverlay = findViewById(R.id.app_library_overlay);
+        libraryCarousel = findViewById(R.id.library_carousel);
+        librarySelectedLabel = findViewById(R.id.library_selected_label);
+        continueWatchingWheel = findViewById(R.id.continue_watching_wheel);
+        continueWatchingHeading = findViewById(R.id.continue_watching_heading);
+        pinnedAppsWheel = findViewById(R.id.pinned_apps_wheel);
+        pinnedAppsScroll = findViewById(R.id.pinned_apps_scroll);
+        if (safeContainer instanceof ViewGroup) {
+            ((ViewGroup) safeContainer).setClipChildren(false);
+            ((ViewGroup) safeContainer).setClipToPadding(false);
+        }
+        if (rootContainer != null) {
+            focusPositionDot = new View(this);
+            focusPositionDotBackground = new GradientDrawable();
+            focusPositionDotBackground.setShape(GradientDrawable.OVAL);
+            focusPositionDotBackground.setColor(currentHudAccent);
+            focusPositionDotBackground.setStroke(dp(1), 0xCCFFFFFF);
+            focusPositionDot.setBackground(focusPositionDotBackground);
+            focusPositionDot.setElevation(dp(24));
+            focusPositionDot.setVisibility(View.GONE);
+            focusPositionDot.setFocusable(false);
+            focusPositionDot.setClickable(false);
+            focusPositionDot.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            rootContainer.addView(focusPositionDot,
+                    new FrameLayout.LayoutParams(dp(10), dp(10), Gravity.TOP | Gravity.LEFT));
+
+            rootContainer.getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus, newFocus) -> {
+                if (newFocus == null || newFocus == focusPositionDot) return;
+                if (rebuildingPinnedWheel) return;
+                // Dedicated carousel callbacks use the card surface/edge, avoiding a transient
+                // marker jump when focus itself is on a containing view.
+                if (continueWatchingWheel != null && isDescendantOf(newFocus, continueWatchingWheel)) return;
+                if (carouselView != null && (newFocus == carouselView || isDescendantOf(newFocus, carouselView))) {
+                    updateFocusPositionDot(carouselView.getSelectedCardView());
+                } else if (libraryCarousel != null
+                        && (newFocus == libraryCarousel || isDescendantOf(newFocus, libraryCarousel))) {
+                    updateFocusPositionDot(libraryCarousel.getSelectedCardView());
+                } else {
+                    updateFocusPositionDot(newFocus);
+                }
+            });
+        }
+        if (pinnedAppsScroll != null) {
+            pinnedAppsScroll.setClipChildren(false);
+            pinnedAppsScroll.setClipToPadding(false);
+        }
+        if (pinnedAppsWheel != null) {
+            pinnedAppsWheel.setClipChildren(false);
+            pinnedAppsWheel.setClipToPadding(false);
+        }
+
+        View btnInputs = findViewById(R.id.btn_inputs);
+        View btnWifi = findViewById(R.id.btn_wifi);
+        View btnSettings = findViewById(R.id.btn_settings);
+        View btnSearch = findViewById(R.id.btn_search);
+        View btnPhotos = findViewById(R.id.btn_photos);
+        TextView tvWifiIcon = findViewById(R.id.tv_wifi_icon);
+
+        setupTopControlIllumination(btnInputs, btnWifi, btnSettings, btnPhotos, btnSearch);
+
+        backgroundManager = new CinematicBackgroundManager(this, bgImageA, bgImageB, launcherConfig);
+        backgroundManager.setOnBackgroundChangedListener(this::scheduleAdaptiveHudColors);
+        View inputOverlay = findViewById(R.id.input_overlay);
+        TvView inputTvView = findViewById(R.id.tv_input_view);
+        controlManager = new TvControlManager(this, btnInputs, btnWifi, btnSettings, btnPhotos, btnSearch, tvWifiIcon, inputOverlay, inputTvView);
+        focusController = new FocusNavigationController(carouselView, btnInputs, btnWifi, btnSettings, btnPhotos, btnSearch);
+
+        carouselView.setSelectionListener(this);
+        // The navigation marker stays in the fixed center slot. It is updated on selection,
+        // not once per animation frame, to keep remote navigation work off the frame hot path.
+        if (continueWatchingWheel != null) {
+            continueWatchingWheel.setOnItemActivatedListener(this::launchContinueWatchingApp);
+            continueWatchingWheel.setOnNavigateBackListener(() -> carouselView.requestFocus());
+            continueWatchingWheel.setOnFocusTargetChangedListener(target -> updateFocusPositionDot(target, true));
+            continueWatchingWheel.setOnItemsChangedListener(() -> {
+                updateContinueWatchingSectionVisibility();
+                updateContinueWatchingViewportBounds();
+            });
+        }
+        if (continueWatchingHeading != null) continueWatchingHeading.setVisibility(View.GONE);
+        if (safeContainer != null) {
+            safeContainer.addOnLayoutChangeListener((v, left, top, right, bottom,
+                    oldLeft, oldTop, oldRight, oldBottom) -> {
+                updatePinnedAppsViewportBounds();
+                updateContinueWatchingViewportBounds();
+            });
+            safeContainer.post(() -> {
+                updatePinnedAppsViewportBounds();
+                updateContinueWatchingViewportBounds();
+            });
+        }
+    }
+
+    private void loadApps() {
+        List<AppItem> discoveredApps = discoveryManager.discoverRecentApps(5);
+        if (discoveredApps.isEmpty()) {
+            tvFocusedAppLabel.setText(R.string.no_apps_found);
+        }
+
+        // UsageStats may reorder the list while the launcher is paused. Preserve the selected
+        // package identity, otherwise put the third recent app in the fixed visual center slot.
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        String rememberedPackage = prefs.getString(KEY_LAST_APP_PACKAGE, null);
+        int targetIndex = Math.min(2, Math.max(0, discoveredApps.size() - 1));
+        if (rememberedPackage != null) {
+            for (int i = 0; i < discoveredApps.size(); i++) {
+                if (rememberedPackage.equals(discoveredApps.get(i).getPackageName())) {
+                    targetIndex = i;
+                    break;
+                }
+            }
+        }
+
+        carouselView.setItems(discoveredApps);
+        carouselView.setSelectedIndex(targetIndex);
+        focusController.recordSelectedApp(targetIndex);
+        if (targetIndex >= 0 && targetIndex < discoveredApps.size()) {
+            AppItem selected = discoveredApps.get(targetIndex);
+            prefs.edit().putInt(KEY_LAST_APP_INDEX, targetIndex)
+                    .putString(KEY_LAST_APP_PACKAGE, selected.getPackageName()).apply();
+        }
+        refreshPinnedAppsWheel();
+    }
+
+    /**
+     * Request a 60 FPS presentation target without changing resolution or TV settings. Android and
+     * vendor policy may ignore the display/frame-rate hints; the real frame rate must be measured.
+     */
+    private void applyPreferredDisplayMode() {
+        if (android.os.Build.VERSION.SDK_INT < 23 || getWindow()==null) return;
+        try {
+            Display display=getWindowManager().getDefaultDisplay();
+            Display.Mode current=display.getMode();
+            Display.Mode[] supported=display.getSupportedModes();
+            if(current==null || supported==null || supported.length==0) return;
+            DisplayModeSelector.Mode[] candidates=new DisplayModeSelector.Mode[supported.length];
+            for(int i=0;i<supported.length;i++) {
+                Display.Mode mode=supported[i];
+                candidates[i]=new DisplayModeSelector.Mode(mode.getModeId(),mode.getPhysicalWidth(),mode.getPhysicalHeight(),mode.getRefreshRate());
+                Log.i(TAG,String.format(Locale.US,"Supported display mode: %dx%d @ %.2f Hz (id=%d)",
+                        mode.getPhysicalWidth(),mode.getPhysicalHeight(),mode.getRefreshRate(),mode.getModeId()));
+            }
+            int preferredId=DisplayModeSelector.choosePreferredModeId(current.getModeId(),current.getPhysicalWidth(),
+                    current.getPhysicalHeight(),current.getRefreshRate(),60f,candidates);
+            android.view.WindowManager.LayoutParams attrs=getWindow().getAttributes();
+            if(preferredId!=current.getModeId()) {
+                attrs.preferredDisplayModeId=preferredId;
+                attrs.preferredRefreshRate=0f;
+            } else {
+                // Prefer 60 Hz even when the panel is currently at 120 Hz. If 60 Hz is not
+                // supported, Android/vendor policy keeps a compatible mode instead.
+                attrs.preferredDisplayModeId=0;
+                attrs.preferredRefreshRate=60f;
+            }
+            getWindow().setAttributes(attrs);
+            logCurrentDisplayMode("after-request");
+        } catch(Exception e) {
+            Log.w(TAG,"Could not negotiate preferred display refresh mode",e);
+        }
+    }
+
+    private void registerDisplayModeListener() {
+        if(displayListenerRegistered) return;
+        if(displayManager==null) displayManager=(DisplayManager)getSystemService(Context.DISPLAY_SERVICE);
+        if(displayManager==null) return;
+        displayManager.registerDisplayListener(displayListener,new Handler(Looper.getMainLooper()));
+        displayListenerRegistered=true;
+    }
+
+    private void unregisterDisplayModeListener() {
+        if(!displayListenerRegistered || displayManager==null) return;
+        try {displayManager.unregisterDisplayListener(displayListener);} catch(Exception ignored) {}
+        displayListenerRegistered=false;
+    }
+
+    private void logCurrentDisplayMode(String reason) {
+        try {
+            Display.Mode mode=getWindowManager().getDefaultDisplay().getMode();
+            if(mode==null) return;
+            float rate=mode.getRefreshRate();
+            if(mode.getModeId()!=lastLoggedDisplayModeId || Math.abs(rate-lastLoggedRefreshRate)>0.5f) {
+                lastLoggedDisplayModeId=mode.getModeId();
+                lastLoggedRefreshRate=rate;
+                Log.i(TAG,String.format(Locale.US,"Active display mode (%s): %dx%d @ %.2f Hz; refresh != measured FPS.",
+                        reason,mode.getPhysicalWidth(),mode.getPhysicalHeight(),rate));
+            }
+        } catch(Exception e) {Log.d(TAG,"Unable to read active display mode",e);}
+    }
+
+    private void setupClockReceiver() {
+        updateClockAndDate();
+        timeTickReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                updateClockAndDate();
+            }
+        };
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_TIME_TICK);
+        filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+        filter.addAction(Intent.ACTION_LOCALE_CHANGED);
+        registerReceiver(timeTickReceiver, filter);
+    }
+
+    private void updateClockAndDate() {
+        Date now = new Date();
+        Locale locale = Locale.getDefault();
+
+        // Clock: 12h or 24h depending on system settings (Annex C.4)
+        boolean is24h = DateFormat.is24HourFormat(this);
+        String timePattern = is24h ? "HH:mm" : "h:mm a";
+        SimpleDateFormat timeFormat = new SimpleDateFormat(timePattern, locale);
+        if (tvClock != null) {
+            tvClock.setText(timeFormat.format(now));
+        }
+
+        // Date formatted according to system locale
+        SimpleDateFormat dateFormat = new SimpleDateFormat("EEEE, d 'de' MMMM", locale);
+        if (tvDate != null) {
+            String dateText = dateFormat.format(now);
+            // Capitalize first letter
+            if (dateText.length() > 0) {
+                dateText = Character.toUpperCase(dateText.charAt(0)) + dateText.substring(1);
+            }
+            tvDate.setText(dateText);
+        }
+    }
+
+    @Override
+    public void onItemSelected(int index, AppItem item) {
+        if (item != null && tvFocusedAppLabel != null) {
+            tvFocusedAppLabel.setText(item.getLabel());
+            focusController.recordSelectedApp(index);
+            if (!libraryVisible && carouselView != null) {
+                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                        .putInt(KEY_LAST_APP_INDEX, index)
+                        .putString(KEY_LAST_APP_PACKAGE, item.getPackageName()).apply();
+                Runnable updateRecentFocusDot = () -> {
+                    View focus = getCurrentFocus();
+                    if (focus == carouselView || (focus != null && isDescendantOf(focus, carouselView))) {
+                        updateFocusPositionDot(carouselView.getSelectedCardView());
+                    }
+                };
+                carouselView.post(updateRecentFocusDot);
+            }
+        }
+    }
+
+    public void closeInputOverlayFromView(View view) {
+        if (controlManager != null) controlManager.closeInputOverlay();
+    }
+
+    @Override
+    public void onItemLongPressed(int index, AppItem item) {
+        showAppOptions(item);
+    }
+
+    @Override
+    public void onItemActivated(int index, AppItem item) {
+        if (item == null) return;
+
+        // Persist last opened app index across restarts
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit()
+                .putInt(KEY_LAST_APP_INDEX, index)
+                .putString(KEY_LAST_APP_PACKAGE, item.getPackageName())
+                .apply();
+
+        launchApp(item);
+    }
+
+
+
+    private boolean isPinned(AppItem item) {
+        return getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getStringSet(KEY_PINNED_APPS, java.util.Collections.emptySet())
+                .contains(item.getPackageName());
+    }
+
+    private void togglePinned(AppItem item) {
+        int previousPinnedIndex = -1;
+        boolean restorePinnedFocus = false;
+        View currentFocus = getCurrentFocus();
+        if (currentFocus != null && pinnedAppsWheel != null && isDescendantOf(currentFocus, pinnedAppsWheel)) {
+            restorePinnedFocus = true;
+            previousPinnedIndex = pinnedWheelSelectedIndex;
+        } else if (optionsOpenedFromPinnedWheel) {
+            restorePinnedFocus = true;
+            previousPinnedIndex = optionsPinnedIndex;
+        }
+        optionsOpenedFromPinnedWheel = false;
+        optionsPinnedIndex = -1;
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        java.util.Set<String> pinned = new java.util.HashSet<>(
+                prefs.getStringSet(KEY_PINNED_APPS, java.util.Collections.emptySet()));
+        if (!pinned.add(item.getPackageName())) pinned.remove(item.getPackageName());
+        prefs.edit().putStringSet(KEY_PINNED_APPS, pinned).apply();
+        loadApps();
+        if (libraryVisible) {
+            int selected = libraryCarousel.getSelectedIndex();
+            libraryCarousel.setItems(discoveryManager.discoverApps(0));
+            libraryCarousel.setSelectedIndex(selected);
+        }
+        if (restorePinnedFocus && pinnedAppsWheel.getChildCount() > 0) {
+            if (!pinnedWheelItems.isEmpty()) {
+                pinnedWheelSelectedIndex = Math.min(Math.max(0, previousPinnedIndex), pinnedWheelItems.size() - 1);
+                renderPinnedWheel();
+            }
+            View target = getPinnedWheelCenterChild();
+            if (target != null) target.post(target::requestFocus);
+        } else if (restorePinnedFocus && pinnedAppsWheel.getChildCount() == 0) {
+            carouselView.requestFocus();
+        }
+        Toast.makeText(this, pinned.contains(item.getPackageName()) ? "Aplicación fijada en acceso rápido" : "Aplicación retirada de acceso rápido", Toast.LENGTH_SHORT).show();
+    }
+
+    private void refreshPinnedAppsWheel() {
+        if (pinnedAppsWheel == null || pinnedAppsScroll == null || discoveryManager == null) return;
+
+        String previouslySelectedPackage = null;
+        if (!pinnedWheelItems.isEmpty()) {
+            int oldIndex = Math.floorMod(pinnedWheelSelectedIndex, pinnedWheelItems.size());
+            previouslySelectedPackage = pinnedWheelItems.get(oldIndex).getPackageName();
+        }
+
+        pinnedWheelItems.clear();
+        java.util.Set<String> pinned = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .getStringSet(KEY_PINNED_APPS, java.util.Collections.emptySet());
+        List<AppItem> all = discoveryManager.discoverApps(0);
+        for (AppItem candidate : all) {
+            if (candidate != null && pinned.contains(candidate.getPackageName())) {
+                pinnedWheelItems.add(candidate);
+            }
+        }
+
+        if (pinnedWheelItems.isEmpty()) {
+            pinnedWheelSelectedIndex = 0;
+            pinnedAppsWheel.removeAllViews();
+            pinnedAppsWheel.setVisibility(View.GONE);
+            pinnedAppsScroll.setVisibility(View.GONE);
+            return;
+        }
+
+        int preservedIndex = -1;
+        if (previouslySelectedPackage != null) {
+            for (int i = 0; i < pinnedWheelItems.size(); i++) {
+                if (previouslySelectedPackage.equals(pinnedWheelItems.get(i).getPackageName())) {
+                    preservedIndex = i;
+                    break;
+                }
+            }
+        }
+        if (preservedIndex >= 0) pinnedWheelSelectedIndex = preservedIndex;
+        else pinnedWheelSelectedIndex = Math.min(pinnedWheelSelectedIndex, pinnedWheelItems.size() - 1);
+
+        pinnedAppsScroll.setVisibility(View.VISIBLE);
+        pinnedAppsWheel.setVisibility(View.VISIBLE);
+        renderPinnedWheel();
+    }
+
+    /**
+     * Render only the five items on the visible half of the wheel. The wheel's
+     * center is at the physical left edge; its front half arcs into the screen,
+     * while its other half travels beyond the left edge during rotation.
+     */
+    private void renderPinnedWheel() {
+        if (pinnedAppsWheel == null) return;
+        View currentFocus = getCurrentFocus();
+        boolean restoreWheelFocus = currentFocus != null && isDescendantOf(currentFocus, pinnedAppsWheel);
+        rebuildingPinnedWheel = true;
+        // Rebuild only for pin/list changes; normal D-pad rotation reuses attached views.
+        pinnedAppsWheel.removeAllViews();
+        pinnedWheelSlotViews.clear();
+        int total = pinnedWheelItems.size();
+        if (total == 0) {
+            pinnedWheelAnimating = false;
+            pinnedAppsWheel.setVisibility(View.GONE);
+            if (pinnedAppsScroll != null) pinnedAppsScroll.setVisibility(View.GONE);
+            rebuildingPinnedWheel = false;
+            if (focusPositionDot != null) focusPositionDot.setVisibility(View.GONE);
+            return;
+        }
+        int visibleCount = Math.min(PINNED_WHEEL_VISIBLE_ITEMS, total);
+        int centerSlot = visibleCount / 2;
+        for (int slot = 0; slot < visibleCount; slot++) {
+            int itemIndex = Math.floorMod(pinnedWheelSelectedIndex + slot - centerSlot, total);
+            ImageView iconView = createPinnedWheelIcon(pinnedWheelItems.get(itemIndex));
+            pinnedWheelSlotViews.add(iconView);
+            pinnedAppsWheel.addView(iconView, new FrameLayout.LayoutParams(dp(48), dp(48)));
+            placePinnedWheelIcon(iconView, pinnedWheelAngle(slot, visibleCount));
+        }
+        pinnedAppsWheel.post(() -> {
+            layoutPinnedWheelIcons();
+            View center = getPinnedWheelCenterChild();
+            if (restoreWheelFocus && center != null) {
+                center.requestFocus();
+                updateFocusPositionDot(center);
+            }
+            rebuildingPinnedWheel = false;
+        });
+    }
+
+    private ImageView createPinnedWheelIcon(AppItem item) {
+        ImageView iconView = new ImageView(this);
+        iconView.setId(View.generateViewId());
+        iconView.setTag(item);
+        iconView.setContentDescription(item.getLabel());
+        iconView.setFocusable(true);
+        iconView.setClickable(true);
+        iconView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        int padding = dp(7);
+        iconView.setPadding(padding, padding, padding, padding);
+        iconView.setBackgroundResource(R.drawable.pinned_app_icon_bg);
+        if (item.getIcon() != null) iconView.setImageDrawable(item.getIcon());
+        iconView.setOnFocusChangeListener((v, hasFocus) -> {
+            if (hasFocus) {
+                applyAppFocusGlow(iconView, (AppItem) iconView.getTag());
+                updateFocusPositionDot(iconView);
+            } else {
+                iconView.setBackgroundResource(R.drawable.pinned_app_icon_bg);
+                iconView.setElevation(0f);
+            }
+        });
+        final boolean[] longPressHandled = {false};
+        iconView.setOnClickListener(v -> {
+            if (!pinnedWheelAnimating) launchApp((AppItem) v.getTag());
+        });
+        iconView.setOnLongClickListener(v -> {
+            if (pinnedWheelAnimating) return true;
+            if (!longPressHandled[0]) {
+                longPressHandled[0] = true;
+                AppItem focusedItem = (AppItem) v.getTag();
+                if (focusedItem != null) showAppOptions(focusedItem);
+            }
+            return true;
+        });
+        iconView.setOnKeyListener((v, keyCode, event) -> {
+            if (pinnedWheelAnimating) return true;
+
+            if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    rotatePinnedWheel(keyCode == KeyEvent.KEYCODE_DPAD_UP ? -1 : 1);
+                }
+                return true;
+            }
+
+            if (keyCode != KeyEvent.KEYCODE_DPAD_CENTER && keyCode != KeyEvent.KEYCODE_ENTER) return false;
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() > 0) {
+                if (!longPressHandled[0]) {
+                    longPressHandled[0] = true;
+                    AppItem focusedItem = (AppItem) iconView.getTag();
+                    if (focusedItem != null) showAppOptions(focusedItem);
+                }
+                return true;
+            }
+            if (event.getAction() == KeyEvent.ACTION_UP) {
+                if (longPressHandled[0]) longPressHandled[0] = false;
+                else if (event.getRepeatCount() == 0) {
+                    AppItem focusedItem = (AppItem) iconView.getTag();
+                    if (focusedItem != null) launchApp(focusedItem);
+                }
+                return true;
+            }
+            return true;
+        });
+        iconView.setNextFocusUpId(iconView.getId());
+        iconView.setNextFocusDownId(iconView.getId());
+        iconView.setNextFocusLeftId(iconView.getId());
+        iconView.setNextFocusRightId(R.id.app_carousel);
+        return iconView;
+    }
+
+    private float pinnedWheelAngle(int slot, int visibleCount) {
+        if (visibleCount <= 1) return 0f;
+        return (float) (-Math.PI / 2.0 + (Math.PI * slot / (visibleCount - 1)));
+    }
+
+    private void placePinnedWheelIcon(View icon, float angle) {
+        if (pinnedAppsWheel == null || icon == null) return;
+        float iconSize = dp(48);
+        float viewportHeight = pinnedAppsWheel.getHeight() > 0
+                ? pinnedAppsWheel.getHeight() : dp(310);
+        float radius = Math.max(dp(1), (viewportHeight - iconSize) / 2f);
+        float centerX = iconSize / 2f;
+        float centerY = viewportHeight / 2f;
+        float x = centerX + radius * (float) Math.cos(angle) - iconSize / 2f;
+        float y = centerY + radius * (float) Math.sin(angle) - iconSize / 2f;
+        icon.setX(x);
+        icon.setY(y);
+        float scale = 0.82f + 0.18f * Math.max(0f, (float) Math.cos(angle));
+        icon.setScaleX(scale);
+        icon.setScaleY(scale);
+        icon.setRotationY(Math.max(-18f, Math.min(18f, -angle * 18f / (float) (Math.PI / 2.0))));
+        icon.setAlpha(1f);
+    }
+
+    private void layoutPinnedWheelIcons() {
+        int count = pinnedWheelSlotViews.size();
+        for (int slot = 0; slot < count; slot++) placePinnedWheelIcon(pinnedWheelSlotViews.get(slot), pinnedWheelAngle(slot, count));
+    }
+
+    private View getPinnedWheelCenterChild() {
+        return pinnedWheelSlotViews.isEmpty() ? null : pinnedWheelSlotViews.get(pinnedWheelSlotViews.size()/2);
+    }
+
+    private void rotatePinnedWheel(int delta) {
+        if (pinnedWheelAnimating || pinnedAppsWheel == null || pinnedWheelItems.isEmpty()
+                || (delta != -1 && delta != 1)) return;
+        int count = pinnedWheelSlotViews.size();
+        if (count <= 1) return;
+        int newSelection = Math.floorMod(pinnedWheelSelectedIndex + delta, pinnedWheelItems.size());
+        float step = (float)(Math.PI / (count - 1));
+        int centerSlot = count / 2;
+        int incomingSlot = delta > 0 ? count - 1 : 0;
+        float incomingAngle = pinnedWheelAngle(incomingSlot,count) + delta * step;
+        float targetAngle = pinnedWheelAngle(incomingSlot,count);
+        int incomingItemIndex = Math.floorMod(newSelection + incomingSlot - centerSlot, pinnedWheelItems.size());
+        ImageView incoming = createPinnedWheelIcon(pinnedWheelItems.get(incomingItemIndex));
+        incoming.setFocusable(false);
+        incoming.setClickable(false);
+        pinnedAppsWheel.addView(incoming, new FrameLayout.LayoutParams(dp(48),dp(48)));
+        placePinnedWheelIcon(incoming,incomingAngle);
+        List<View> moving = new ArrayList<>(pinnedWheelSlotViews);
+        List<Float> startingAngles = new ArrayList<>();
+        for (int i=0;i<count;i++) {
+            moving.get(i).setClickable(false);
+            startingAngles.add(pinnedWheelAngle(i,count));
+        }
+        pinnedWheelAnimating = true;
+        ValueAnimator animator = ValueAnimator.ofFloat(0f,1f);
+        animator.setDuration(280);
+        animator.setInterpolator(new DecelerateInterpolator());
+        animator.addUpdateListener(animation -> {
+            float t=(float)animation.getAnimatedValue();
+            for(int i=0;i<moving.size();i++) placePinnedWheelIcon(moving.get(i),startingAngles.get(i)-delta*step*t);
+            placePinnedWheelIcon(incoming,incomingAngle+(targetAngle-incomingAngle)*t);
+            View focused=getCurrentFocus();
+            if(focused!=null && isDescendantOf(focused,pinnedAppsWheel)) updateFocusPositionDot(focused);
+        });
+        animator.addListener(new AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(Animator animation) {
+                List<ImageView> oldSlots = new ArrayList<>(pinnedWheelSlotViews);
+                ImageView outgoing = PinnedWheelSlotOrder.outgoing(oldSlots,delta);
+                List<ImageView> nextSlots = PinnedWheelSlotOrder.rotate(oldSlots,incoming,delta);
+                incoming.setFocusable(true);
+                incoming.setClickable(true);
+                pinnedWheelSlotViews.clear();
+                pinnedWheelSlotViews.addAll(nextSlots);
+                // Shift focus to the next center while all existing card views are still attached.
+                View nextCenter=getPinnedWheelCenterChild();
+                if(nextCenter!=null) {
+                    nextCenter.requestFocus();
+                    updateFocusPositionDot(nextCenter);
+                }
+                if(outgoing!=null) pinnedAppsWheel.removeView(outgoing);
+                for(ImageView card:pinnedWheelSlotViews) {
+                    card.setFocusable(true);
+                    card.setClickable(true);
+                    pinnedAppsWheel.bringChildToFront(card);
+                }
+                pinnedWheelSelectedIndex=newSelection;
+                pinnedWheelAnimating=false;
+            }
+        });
+        animator.start();
+    }
+
+    private void updateFocusPositionDot(View anchor) {
+        updateFocusPositionDot(anchor, false);
+    }
+
+    private void updateFocusPositionDot(View anchor, boolean placeOnLeftEdge) {
+        if (focusPositionDot == null || rootContainer == null || anchor == null) return;
+
+        View target = anchor;
+        boolean fixedCarouselSlot = false;
+        boolean usesSelectionAccent = false;
+        int selectionAccent = currentHudAccent;
+
+        if (carouselView != null && (anchor == carouselView || isDescendantOf(anchor, carouselView))) {
+            target = carouselView.getSelectedCardView();
+            fixedCarouselSlot = true;
+            usesSelectionAccent = true;
+            selectionAccent = carouselView.getSelectedAccentColor();
+        } else if (libraryCarousel != null
+                && (anchor == libraryCarousel || isDescendantOf(anchor, libraryCarousel))) {
+            target = libraryCarousel.getSelectedCardView();
+            fixedCarouselSlot = true;
+            usesSelectionAccent = true;
+            selectionAccent = libraryCarousel.getSelectedAccentColor();
+        } else if (continueWatchingWheel != null
+                && (anchor == continueWatchingWheel || isDescendantOf(anchor, continueWatchingWheel))) {
+            selectionAccent = continueWatchingWheel.getAccentColorForTarget(anchor);
+            usesSelectionAccent = true;
+        }
+
+        if (target == null || target.getVisibility() != View.VISIBLE) {
+            focusPositionUsesSelectionAccent = usesSelectionAccent;
+            focusPositionDot.setVisibility(View.GONE);
+            return;
+        }
+
+        // Selection in either app carousel is always represented at the fixed center slot.
+        // Do not chase a card through every animation frame; that geometry work caused jank.
+        if (fixedCarouselSlot) {
+            View carouselAnchor = carouselView != null
+                    && (anchor == carouselView || isDescendantOf(anchor, carouselView))
+                    ? carouselView : libraryCarousel;
+            if (carouselAnchor == null || !carouselAnchor.getGlobalVisibleRect(focusVisibleRect)) {
+                focusPositionDot.setVisibility(View.GONE);
+                return;
+            }
+        } else if (!target.getGlobalVisibleRect(focusVisibleRect)) {
+            focusPositionDot.setVisibility(View.GONE);
+            return;
+        }
+
+        rootContainer.getLocationOnScreen(focusRootLocation);
+        int dotSize = dp(10);
+        float edgeX;
+        float centerY;
+        if (fixedCarouselSlot) {
+            float centerX = focusVisibleRect.centerX() - focusRootLocation[0];
+            centerY = focusVisibleRect.centerY() - focusRootLocation[1];
+            float halfCardWidth = dp(59); // half of the carousel's 118dp center card
+            edgeX = centerX + (placeOnLeftEdge ? -halfCardWidth : halfCardWidth);
+        } else {
+            edgeX = (placeOnLeftEdge ? focusVisibleRect.left : focusVisibleRect.right)
+                    - focusRootLocation[0];
+            centerY = focusVisibleRect.centerY() - focusRootLocation[1];
+        }
+        float proposedX = edgeX - dotSize / 2f;
+        float proposedY = centerY - dotSize / 2f;
+        float maxX = rootContainer.getWidth() - dotSize;
+        float maxY = rootContainer.getHeight() - dotSize;
+        if (proposedX < 0 || proposedX > maxX || proposedY < 0 || proposedY > maxY) {
+            focusPositionUsesSelectionAccent = usesSelectionAccent;
+            focusPositionDot.setVisibility(View.GONE);
+            return;
+        }
+
+        focusPositionUsesSelectionAccent = usesSelectionAccent;
+        if (focusPositionDotBackground != null) {
+            focusPositionDotBackground.setColor(usesSelectionAccent ? selectionAccent : currentHudAccent);
+            focusPositionDotBackground.setStroke(Math.max(1, dp(1)), 0xCCFFFFFF);
+            focusPositionDot.invalidate();
+        }
+        focusPositionDot.setX(proposedX);
+        focusPositionDot.setY(proposedY);
+        focusPositionDot.setVisibility(View.VISIBLE);
+    }
+
+    /**
+     * Sample the just-selected wallpaper off the UI thread and adapt the HUD accent.
+     * Sampling is intentionally tiny and runs only after a wallpaper transition/resume,
+     * not on every animation frame.
+     */
+    private void scheduleAdaptiveHudColors() {
+        if (backgroundManager == null) return;
+        Drawable current = backgroundManager.getCurrentBackgroundDrawable();
+        if (current == null || current.getConstantState() == null) return;
+        Drawable snapshot = current.getConstantState().newDrawable(getResources()).mutate();
+        int request = ++hudColorGeneration;
+        HUD_COLOR_EXECUTOR.execute(() -> {
+            int accent = sampleHudAccent(snapshot);
+            runOnUiThread(() -> {
+                if (request != hudColorGeneration || isFinishing()) return;
+                animateAdaptiveHudAccent(accent);
+            });
+        });
+    }
+
+    private int sampleHudAccent(Drawable wallpaper) {
+        Bitmap sample = null;
+        try {
+            final int sampleWidth = 40;
+            final int sampleHeight = 24;
+            sample = Bitmap.createBitmap(sampleWidth, sampleHeight, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(sample);
+            wallpaper.setBounds(0, 0, sampleWidth, sampleHeight);
+            wallpaper.draw(canvas);
+            double hueX = 0d;
+            double hueY = 0d;
+            double saturationSum = 0d;
+            double weightSum = 0d;
+            float[] hsv = new float[3];
+            for (int y = 0; y < sampleHeight; y++) {
+                for (int x = 0; x < sampleWidth; x++) {
+                    int pixel = sample.getPixel(x, y);
+                    if (Color.alpha(pixel) < 96) continue;
+                    Color.colorToHSV(pixel, hsv);
+                    if (hsv[2] < 0.12f || hsv[2] > 0.98f) continue;
+                    double saturation = Math.max(0.12d, hsv[1]);
+                    double weight = saturation * (0.35d + hsv[2]);
+                    double radians = Math.toRadians(hsv[0]);
+                    hueX += Math.cos(radians) * weight;
+                    hueY += Math.sin(radians) * weight;
+                    saturationSum += hsv[1] * weight;
+                    weightSum += weight;
+                }
+            }
+            if (weightSum <= 0.0001d) return Color.rgb(84, 224, 255);
+            double hue = Math.toDegrees(Math.atan2(hueY, hueX));
+            if (hue < 0d) hue += 360d;
+            float saturation = (float) Math.max(0.38d, Math.min(0.68d, saturationSum / weightSum));
+            return Color.HSVToColor(new float[] {(float) hue, saturation, 0.98f});
+        } catch (Exception e) {
+            Log.d(TAG, "Could not sample wallpaper accent; using cyan fallback", e);
+            return Color.rgb(84, 224, 255);
+        } finally {
+            if (sample != null && !sample.isRecycled()) sample.recycle();
+        }
+    }
+
+    /** Smoothly blend wallpaper-derived accents; a newer wallpaper continues from the current tint. */
+    private void animateAdaptiveHudAccent(int targetAccent) {
+        if (hudColorAnimator != null) {
+            hudColorAnimator.cancel();
+            hudColorAnimator = null;
+        }
+        final int startAccent = currentHudAccent;
+        ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
+        hudColorAnimator = animator;
+        // Follow the wallpaper promptly while keeping the shortest-HSV-path transition smooth.
+        animator.setDuration(1800L);
+        animator.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+        animator.addUpdateListener(animation -> {
+            float fraction = (float) animation.getAnimatedValue();
+            int blended = interpolateHudAccent(startAccent, targetAccent, fraction);
+            applyAdaptiveHudAccent(blended);
+        });
+        animator.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(Animator animation) {
+                if (hudColorAnimator == animator) hudColorAnimator = null;
+                applyAdaptiveHudAccent(targetAccent);
+            }
+            @Override public void onAnimationCancel(Animator animation) {
+                if (hudColorAnimator == animator) hudColorAnimator = null;
+            }
+        });
+        animator.start();
+    }
+
+    /** Interpolates hue along the shorter path; RGB interpolation can briefly muddy saturated neon accents. */
+    private int interpolateHudAccent(int startColor, int endColor, float fraction) {
+        float[] start = new float[3];
+        float[] end = new float[3];
+        Color.colorToHSV(startColor, start);
+        Color.colorToHSV(endColor, end);
+
+        float deltaHue = end[0] - start[0];
+        if (deltaHue > 180f) deltaHue -= 360f;
+        else if (deltaHue < -180f) deltaHue += 360f;
+
+        float[] blended = new float[3];
+        blended[0] = (start[0] + fraction * deltaHue + 360f) % 360f;
+        blended[1] = start[1] + (end[1] - start[1]) * fraction;
+        blended[2] = start[2] + (end[2] - start[2]) * fraction;
+        return Color.HSVToColor(blended);
+    }
+
+    /** Mutates one glass drawable; the transition does not allocate a new background each frame. */
+    private void applyAdaptiveHudAccent(int accent) {
+        currentHudAccent = accent;
+        int r = Color.red(accent);
+        int g = Color.green(accent);
+        int b = Color.blue(accent);
+        if (focusPositionDotBackground != null && !focusPositionUsesSelectionAccent) {
+            focusPositionDotBackground.setColor(accent);
+            focusPositionDotBackground.setStroke(Math.max(1, dp(1)), 0xCCFFFFFF);
+            focusPositionDot.invalidate();
+        }
+        if (tvClock != null) {
+            tvClock.setTextColor(Color.rgb(246, 251, 255));
+            tvClock.setShadowLayer(dp(9), 0f, 0f, Color.argb(205, r, g, b));
+        }
+        if (tvDate != null) {
+            tvDate.setTextColor(accent);
+            tvDate.setShadowLayer(dp(5), 0f, 0f, Color.argb(175, r, g, b));
+        }
+        if (tvWeather != null) {
+            int weatherR = (r + 255) / 2;
+            int weatherG = (g + 255) / 2;
+            int weatherB = (b + 255) / 2;
+            tvWeather.setTextColor(Color.rgb(weatherR, weatherG, weatherB));
+            if (weatherGlassBackground == null) {
+                weatherGlassBackground = new GradientDrawable(
+                        GradientDrawable.Orientation.TOP_BOTTOM,
+                        new int[] {Color.argb(42, r, g, b), Color.argb(102, 8, 14, 26),
+                                Color.argb(66, r, g, b)});
+                weatherGlassBackground.setCornerRadius(dp(14));
+                tvWeather.setBackground(weatherGlassBackground);
+            } else {
+                weatherGlassBackground.setColors(new int[] {Color.argb(42, r, g, b),
+                        Color.argb(102, 8, 14, 26), Color.argb(66, r, g, b)});
+            }
+            weatherGlassBackground.setStroke(Math.max(1, dp(1)), Color.argb(165, r, g, b));
+            tvWeather.setShadowLayer(dp(3), 0f, 0f, Color.argb(150, r, g, b));
+        }
+    }
+
+    private void setupTopControlIllumination(View... controls) {
+        if (controls == null) return;
+        for (View control : controls) {
+            if (control == null) continue;
+            control.setBackground(createControlCardGlow(control.hasFocus()));
+            control.setElevation(dp(control.hasFocus() ? 10 : 4));
+            control.setOnFocusChangeListener((view, hasFocus) -> {
+                view.setBackground(createControlCardGlow(hasFocus));
+                view.setElevation(dp(hasFocus ? 10 : 4));
+                view.setTranslationZ(dp(hasFocus ? 3 : 0));
+            });
+            applyControlTextGlow(control);
+        }
+    }
+
+    private Drawable createControlCardGlow(boolean focused) {
+        int edgeOuter = focused ? 90 : 30;
+        int edgeMiddle = focused ? 155 : 72;
+        int edgeInner = focused ? 238 : 132;
+        int fillOuter = focused ? 18 : 7;
+        int fillMiddle = focused ? 20 : 9;
+        int fillInner = focused ? 32 : 14;
+
+        GradientDrawable outer = new GradientDrawable();
+        outer.setShape(GradientDrawable.RECTANGLE);
+        outer.setCornerRadius(dp(23));
+        outer.setColor(android.graphics.Color.argb(fillOuter, 120, 105, 255));
+        outer.setStroke(dp(focused ? 2 : 1), android.graphics.Color.argb(edgeOuter, 125, 125, 255));
+
+        GradientDrawable middle = new GradientDrawable();
+        middle.setShape(GradientDrawable.RECTANGLE);
+        middle.setCornerRadius(dp(20));
+        middle.setColor(android.graphics.Color.argb(fillMiddle, 115, 170, 255));
+        middle.setStroke(dp(1), android.graphics.Color.argb(edgeMiddle, 155, 185, 255));
+
+        GradientDrawable inner = new GradientDrawable();
+        inner.setShape(GradientDrawable.RECTANGLE);
+        inner.setCornerRadius(dp(18));
+        inner.setColor(android.graphics.Color.argb(fillInner, 255, 255, 255));
+        inner.setStroke(dp(focused ? 2 : 1), android.graphics.Color.argb(edgeInner, 218, 210, 255));
+
+        android.graphics.drawable.LayerDrawable glow =
+                new android.graphics.drawable.LayerDrawable(new Drawable[]{outer, middle, inner});
+        glow.setLayerInset(0, -dp(focused ? 6 : 3), -dp(focused ? 6 : 3),
+                -dp(focused ? 6 : 3), -dp(focused ? 6 : 3));
+        glow.setLayerInset(1, -dp(focused ? 3 : 1), -dp(focused ? 3 : 1),
+                -dp(focused ? 3 : 1), -dp(focused ? 3 : 1));
+        return glow;
+    }
+
+    private void applyControlTextGlow(View control) {
+        if (!(control instanceof ViewGroup)) return;
+        ViewGroup group = (ViewGroup) control;
+        for (int i = 0; i < group.getChildCount(); i++) {
+            View child = group.getChildAt(i);
+            if (child instanceof TextView) {
+                TextView label = (TextView) child;
+                label.setShadowLayer(dp(3), 0f, 0f, 0xB0D6D0FF);
+            } else if (child instanceof ViewGroup) {
+                applyControlTextGlow(child);
+            }
+        }
+    }
+
+    private void applyAppFocusGlow(ImageView view, AppItem item) {
+        int color = sampleAppColor(item == null ? null : item.getIcon());
+        int red = android.graphics.Color.red(color), green = android.graphics.Color.green(color), blue = android.graphics.Color.blue(color);
+        GradientDrawable outer = new GradientDrawable();
+        outer.setShape(GradientDrawable.OVAL);
+        outer.setColor(android.graphics.Color.argb(10, red, green, blue));
+        outer.setStroke(dp(1), android.graphics.Color.argb(65, red, green, blue));
+        GradientDrawable middle = new GradientDrawable();
+        middle.setShape(GradientDrawable.OVAL);
+        middle.setColor(android.graphics.Color.argb(18, red, green, blue));
+        middle.setStroke(dp(1), android.graphics.Color.argb(130, red, green, blue));
+        GradientDrawable inner = new GradientDrawable();
+        inner.setShape(GradientDrawable.OVAL);
+        inner.setColor(android.graphics.Color.argb(32, red, green, blue));
+        inner.setStroke(dp(2), color);
+        android.graphics.drawable.LayerDrawable halo = new android.graphics.drawable.LayerDrawable(new Drawable[]{outer, middle, inner});
+        halo.setLayerInset(0, -dp(5), -dp(5), -dp(5), -dp(5));
+        halo.setLayerInset(1, -dp(2), -dp(2), -dp(2), -dp(2));
+        view.setBackground(halo);
+        view.setElevation(dp(8));
+    }
+
+    private int sampleAppColor(Drawable source) {
+        if (source == null) return android.graphics.Color.rgb(120, 170, 255);
+        Bitmap bitmap = null;
+        try {
+            Drawable drawable = source.getConstantState() == null ? source : source.getConstantState().newDrawable().mutate();
+            bitmap = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(bitmap);
+            drawable.setBounds(0, 0, 24, 24);
+            drawable.draw(canvas);
+            long red = 0, green = 0, blue = 0, count = 0;
+            for (int y = 0; y < 24; y++) for (int x = 0; x < 24; x++) {
+                int pixel = bitmap.getPixel(x, y);
+                if (android.graphics.Color.alpha(pixel) < 96) continue;
+                int r = android.graphics.Color.red(pixel), g = android.graphics.Color.green(pixel), b = android.graphics.Color.blue(pixel);
+                int max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b));
+                if (max - min < 24 && max < 210) continue;
+                red += r; green += g; blue += b; count++;
+            }
+            if (count == 0) return android.graphics.Color.rgb(120, 170, 255);
+            return android.graphics.Color.rgb((int)(red / count), (int)(green / count), (int)(blue / count));
+        } catch (Exception e) {
+            return android.graphics.Color.rgb(120, 170, 255);
+        } finally {
+            if (bitmap != null && !bitmap.isRecycled()) bitmap.recycle();
+        }
+    }
+
+    private int getCenteredWheelTop() {
+        int screenHeight = rootContainer != null && rootContainer.getHeight() > 0
+                ? rootContainer.getHeight() : getResources().getDisplayMetrics().heightPixels;
+        return (screenHeight - getWheelViewportHeight()) / 2;
+    }
+
+    private int getWheelViewportHeight() {
+        int screenHeight = rootContainer != null && rootContainer.getHeight() > 0
+                ? rootContainer.getHeight() : getResources().getDisplayMetrics().heightPixels;
+        return Math.min(dp(310), Math.max(dp(220), screenHeight - dp(80)));
+    }
+
+    private void updatePinnedAppsViewportBounds() {
+        if (safeContainer == null || pinnedAppsScroll == null || rootContainer == null) return;
+        int viewportHeight = getWheelViewportHeight();
+        int top = getCenteredWheelTop();
+        int railWidth = Math.min(dp(184), Math.max(dp(180), rootContainer.getWidth() / 10));
+        if (!(pinnedAppsScroll.getLayoutParams() instanceof RelativeLayout.LayoutParams)) return;
+        RelativeLayout.LayoutParams lp = (RelativeLayout.LayoutParams) pinnedAppsScroll.getLayoutParams();
+        int topMargin = top - safeContainer.getPaddingTop();
+        // Shift a few dp past the bezel so the semicircle feels physically edge-attached.
+        int leftMargin = -safeContainer.getPaddingLeft() - dp(8);
+        if (lp.height != viewportHeight || lp.topMargin != topMargin || lp.width != railWidth
+                || lp.leftMargin != leftMargin) {
+            lp.height = viewportHeight;
+            lp.width = railWidth;
+            lp.topMargin = topMargin;
+            lp.leftMargin = leftMargin;
+            lp.bottomMargin = 0;
+            lp.addRule(RelativeLayout.ALIGN_PARENT_LEFT, RelativeLayout.TRUE);
+            lp.removeRule(RelativeLayout.ALIGN_PARENT_START);
+            lp.removeRule(RelativeLayout.BELOW);
+            lp.removeRule(RelativeLayout.ABOVE);
+            pinnedAppsScroll.setLayoutParams(lp);
+            pinnedAppsScroll.post(this::layoutPinnedWheelIcons);
+        }
+    }
+
+    private void refreshContinueWatchingWheel() {
+        if (continueWatchingWheel == null) return;
+        continueWatchingWheel.refreshFromSystem();
+        updateContinueWatchingSectionVisibility();
+        updateContinueWatchingViewportBounds();
+    }
+
+    private void updateContinueWatchingSectionVisibility() {
+        boolean hasItems = continueWatchingWheel != null && continueWatchingWheel.hasItems();
+        if (continueWatchingHeading != null) {
+            continueWatchingHeading.setVisibility(hasItems ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private void updateContinueWatchingViewportBounds() {
+        if (safeContainer == null || continueWatchingWheel == null || rootContainer == null) return;
+        int viewportHeight = getWheelViewportHeight();
+        int top = getCenteredWheelTop();
+        int railWidth = dp(210);
+        int rightMargin = -safeContainer.getPaddingRight() - dp(8);
+
+        if (continueWatchingWheel.getLayoutParams() instanceof RelativeLayout.LayoutParams) {
+            RelativeLayout.LayoutParams lp = (RelativeLayout.LayoutParams) continueWatchingWheel.getLayoutParams();
+            int topMargin = top - safeContainer.getPaddingTop();
+            if (lp.height != viewportHeight || lp.topMargin != topMargin || lp.width != railWidth
+                    || lp.rightMargin != rightMargin) {
+                lp.height = viewportHeight;
+                lp.width = railWidth;
+                lp.topMargin = topMargin;
+                lp.rightMargin = rightMargin;
+                lp.bottomMargin = 0;
+                lp.addRule(RelativeLayout.ALIGN_PARENT_RIGHT, RelativeLayout.TRUE);
+                lp.removeRule(RelativeLayout.ALIGN_PARENT_END);
+                lp.removeRule(RelativeLayout.BELOW);
+                lp.removeRule(RelativeLayout.ABOVE);
+                continueWatchingWheel.setLayoutParams(lp);
+            }
+        }
+
+        if (continueWatchingHeading != null
+                && continueWatchingHeading.getLayoutParams() instanceof RelativeLayout.LayoutParams) {
+            RelativeLayout.LayoutParams headingLp =
+                    (RelativeLayout.LayoutParams) continueWatchingHeading.getLayoutParams();
+            int headingTop = top - safeContainer.getPaddingTop() - dp(24);
+            if (headingLp.width != railWidth || headingLp.height != dp(18)
+                    || headingLp.topMargin != headingTop || headingLp.rightMargin != rightMargin) {
+                headingLp.width = railWidth;
+                headingLp.height = dp(18);
+                headingLp.topMargin = headingTop;
+                headingLp.rightMargin = rightMargin;
+                headingLp.addRule(RelativeLayout.ALIGN_PARENT_RIGHT, RelativeLayout.TRUE);
+                headingLp.removeRule(RelativeLayout.ALIGN_PARENT_END);
+                continueWatchingHeading.setLayoutParams(headingLp);
+            }
+        }
+
+    }
+
+    /**
+     * Prefer the publisher's own resume URI. If the publisher did not provide a usable URI,
+     * open that publisher's launch activity rather than inventing a deep link or playback position.
+     */
+    private void launchContinueWatchingApp(WatchNextRepository.Entry entry) {
+        if (entry == null) return;
+
+        String intentUri = entry.getIntentUri();
+        if (intentUri != null && !intentUri.trim().isEmpty()) {
+            try {
+                Intent resumeIntent = Intent.parseUri(intentUri.trim(), Intent.URI_INTENT_SCHEME);
+                String action = resumeIntent.getAction();
+                android.net.Uri data = resumeIntent.getData();
+                String scheme = data == null ? null : data.getScheme();
+                if (action == null && ("http".equalsIgnoreCase(scheme)
+                        || "https".equalsIgnoreCase(scheme))) {
+                    resumeIntent.setAction(Intent.ACTION_VIEW);
+                    action = Intent.ACTION_VIEW;
+                }
+                if (Intent.ACTION_VIEW.equals(action) || Intent.ACTION_MAIN.equals(action)) {
+                    resumeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                    startActivity(resumeIntent);
+                    return;
+                }
+                Log.w(TAG, "Watch Next resume URI has an unsupported action for " + entry.getTitle());
+            } catch (Exception e) {
+                Log.w(TAG, "Could not open published Watch Next URI for " + entry.getTitle()
+                        + "; trying its publisher app.", e);
+            }
+        }
+
+        String packageName = entry.getPackageName();
+        if (packageName != null && !packageName.trim().isEmpty()) {
+            try {
+                Intent appIntent = getPackageManager().getLaunchIntentForPackage(packageName.trim());
+                if (appIntent != null) {
+                    appIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                            | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                    startActivity(appIntent);
+                    return;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Could not launch Watch Next publisher package " + packageName, e);
+            }
+        }
+
+        Toast.makeText(this,
+                "No se pudo abrir el contenido ni su aplicación de origen.",
+                Toast.LENGTH_LONG).show();
+    }
+
+    private int dp(float value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private void showAppOptions(AppItem item) {
+        if (item == null) return;
+        View originFocus = getCurrentFocus();
+        optionsOpenedFromPinnedWheel = originFocus != null && pinnedAppsWheel != null
+                && isDescendantOf(originFocus, pinnedAppsWheel);
+        optionsPinnedIndex = optionsOpenedFromPinnedWheel ? pinnedWheelSelectedIndex : -1;
+        Dialog dialog = new Dialog(this);
+        View panel = getLayoutInflater().inflate(R.layout.dialog_app_options, null, false);
+        dialog.setContentView(panel);
+        TextView title = panel.findViewById(R.id.app_options_title);
+        TextView pin = panel.findViewById(R.id.app_option_pin);
+        TextView details = panel.findViewById(R.id.app_option_details);
+        TextView uninstall = panel.findViewById(R.id.app_option_uninstall);
+        TextView cancel = panel.findViewById(R.id.app_option_cancel);
+        title.setText(item.getLabel());
+        pin.setText(isPinned(item) ? R.string.app_option_unpin : R.string.app_option_pin);
+        pin.setOnClickListener(v -> { dialog.dismiss(); togglePinned(item); });
+        details.setOnClickListener(v -> {
+            dialog.dismiss();
+            try {
+                Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.parse("package:" + item.getPackageName()));
+                startActivity(intent);
+            } catch (Exception e) {
+                Toast.makeText(this, "No se pudieron abrir los detalles de la aplicación", Toast.LENGTH_SHORT).show();
+            }
+        });
+        uninstall.setOnClickListener(v -> {
+            dialog.dismiss();
+            try {
+                Intent intent = new Intent(Intent.ACTION_DELETE,
+                        android.net.Uri.parse("package:" + item.getPackageName()));
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                if (intent.resolveActivity(getPackageManager()) == null) {
+                    Toast.makeText(this, "Android no ofrece desinstalación para esta aplicación del sistema", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                startActivity(intent);
+            } catch (Exception e) {
+                Log.w(TAG, "Unable to open package uninstaller for " + item.getPackageName(), e);
+                Toast.makeText(this, "No se pudo abrir la desinstalación; puede ser una aplicación del sistema", Toast.LENGTH_LONG).show();
+            }
+        });
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        android.view.Window window = dialog.getWindow();
+        if (window != null) window.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
+        dialog.show();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
+            window.setDimAmount(0.18f);
+            window.setLayout((int)(420 * getResources().getDisplayMetrics().density),
+                    android.view.WindowManager.LayoutParams.WRAP_CONTENT);
+        }
+        pin.requestFocus();
+    }
+
+    private void launchApp(AppItem item) {
+        if (item == null) return;
+        try {
+            Intent launchIntent = new Intent(Intent.ACTION_MAIN);
+            launchIntent.setClassName(item.getPackageName(), item.getActivityName());
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+            startActivity(launchIntent);
+            // Record only after Android accepts the launch. System usage timestamps remain
+            // authoritative whenever the user has granted Usage Access.
+            if (discoveryManager != null) discoveryManager.recordAppLaunch(item.getPackageName());
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to launch application: " + item.getPackageName(), e);
+            Toast.makeText(this, "No se pudo abrir " + item.getLabel(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void setupLibraryOverlay() {
+        if (libraryCarousel == null || librarySelectedLabel == null) return;
+        libraryCarousel.setSelectionListener(new AppCarouselView.OnCarouselSelectionListener() {
+            @Override
+            public void onItemSelected(int index, AppItem item) {
+                if (item != null) librarySelectedLabel.setText(item.getLabel());
+                if (libraryVisible && libraryCarousel != null) {
+                    libraryCarousel.post(() -> updateFocusPositionDot(libraryCarousel.getSelectedCardView()));
+                }
+            }
+
+            @Override
+            public void onItemActivated(int index, AppItem item) {
+                launchApp(item);
+            }
+
+            @Override
+            public void onItemLongPressed(int index, AppItem item) {
+                showAppOptions(item);
+            }
+        });
+    }
+
+    private boolean isDescendantOf(View child, ViewGroup parent) {
+        android.view.ViewParent p = child.getParent();
+        while (p != null) {
+            if (p == parent) return true;
+            if (!(p instanceof android.view.View)) break;
+            p = p.getParent();
+        }
+        return false;
+    }
+
+    private int getTransitionHeight() {
+        int height = findViewById(R.id.root_container).getHeight();
+        return height > 0 ? height : getResources().getDisplayMetrics().heightPixels;
+    }
+
+    private void showAppLibrary() {
+        if (libraryVisible || libraryOverlay == null || libraryCarousel == null) return;
+        libraryVisible = true;
+
+        List<AppItem> apps = discoveryManager.discoverApps(0);
+        libraryCarousel.setItems(apps);
+        librarySelectedLabel.setText(apps.isEmpty() ? getString(R.string.no_apps_found) : apps.get(0).getLabel());
+
+        int height = getTransitionHeight();
+        libraryOverlay.animate().cancel();
+        safeContainer.animate().cancel();
+        libraryOverlay.setVisibility(View.VISIBLE);
+        libraryOverlay.setTranslationY(height);
+        safeContainer.animate()
+                .translationY(-height)
+                .setDuration(280)
+                .setInterpolator(new DecelerateInterpolator())
+                .start();
+        libraryOverlay.animate()
+                .translationY(0)
+                .setDuration(280)
+                .setInterpolator(new DecelerateInterpolator())
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        libraryCarousel.requestFocus();
+                        libraryCarousel.post(() -> updateFocusPositionDot(libraryCarousel.getSelectedCardView()));
+                        libraryOverlay.animate().setListener(null);
+                    }
+                })
+                .start();
+        libraryCarousel.requestFocus();
+    }
+
+    private void hideAppLibrary() {
+        if (!libraryVisible || libraryOverlay == null) return;
+        libraryVisible = false;
+
+        int height = getTransitionHeight();
+        libraryOverlay.animate().cancel();
+        safeContainer.animate().cancel();
+        safeContainer.animate()
+                .translationY(0)
+                .setDuration(160)
+                .setInterpolator(new DecelerateInterpolator())
+                .start();
+        libraryOverlay.animate()
+                .translationY(height)
+                .setDuration(160)
+                .setInterpolator(new DecelerateInterpolator())
+                .setListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        libraryOverlay.setVisibility(View.GONE);
+                        libraryOverlay.setTranslationY(0);
+                        libraryOverlay.animate().setListener(null);
+                        carouselView.requestFocus();
+                    }
+                })
+                .start();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        registerDisplayModeListener();
+        if (backgroundManager != null) {
+            backgroundManager.onResume();
+        }
+        if (controlManager != null) {
+            controlManager.updateWifiIndicator();
+        }
+        loadApps();
+        refreshContinueWatchingWheel();
+        if (weatherWidgetManager != null) weatherWidgetManager.refreshIfAllowed();
+        applyPreferredDisplayMode();
+        if (weatherWidgetManager != null && weatherWidgetManager.requestInitialPermissionIfNeeded()) {
+            return;
+        }
+        requestWatchNextReadPermissionIfNeeded();
+        if (!watchNextPermissionRequestInFlight) promptUsageAccessIfNeeded();
+        updateClockAndDate();
+        if (updateManager != null) updateManager.onResume();
+    }
+
+    private void requestWatchNextReadPermissionIfNeeded() {
+        if (checkSelfPermission(PERMISSION_READ_TV_LISTINGS) == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        if (prefs.getBoolean(KEY_TV_LISTINGS_PERMISSION_REQUESTED, false)) return;
+
+        // Request once so a denied permission does not cause a dialog on every HOME launch.
+        prefs.edit().putBoolean(KEY_TV_LISTINGS_PERMISSION_REQUESTED, true).apply();
+        watchNextPermissionRequestInFlight = true;
+        try {
+            requestPermissions(new String[] { PERMISSION_READ_TV_LISTINGS },
+                    REQUEST_TV_LISTINGS_PERMISSION);
+        } catch (RuntimeException e) {
+            watchNextPermissionRequestInFlight = false;
+            Log.w(TAG, "This TV does not expose runtime access to searchable TV listings.", e);
+        }
+    }
+
+    private void promptUsageAccessIfNeeded() {
+        if (discoveryManager == null || discoveryManager.hasUsageAccess()) return;
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        if (prefs.getBoolean("usage_access_prompted", false)) return;
+        prefs.edit().putBoolean("usage_access_prompted", true).apply();
+        new AlertDialog.Builder(this)
+                .setTitle("Aplicaciones recientes")
+                .setMessage("Para ordenar las cinco aplicaciones usadas más recientemente en todo el televisor, autoriza el acceso de uso para Cinematic TV. Si prefieres no concederlo, la fila seguirá el historial de aplicaciones abiertas desde este launcher y completará los espacios restantes por nombre.")
+                .setPositiveButton("Abrir ajustes", (dialog, which) -> {
+                    try {
+                        startActivity(discoveryManager.createUsageAccessSettingsIntent());
+                    } catch (Exception e) {
+                        Toast.makeText(this, "No se pudieron abrir los ajustes de acceso de uso", Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNegativeButton("Ahora no", null)
+                .show();
+    }
+
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            int keyCode = event.getKeyCode();
+            if (controlManager != null && keyCode == KeyEvent.KEYCODE_BACK
+                    && controlManager.closeInputOverlay()) return true;
+            if (libraryVisible && (keyCode == KeyEvent.KEYCODE_DPAD_UP
+                    || keyCode == KeyEvent.KEYCODE_BACK || keyCode == KeyEvent.KEYCODE_ESCAPE)) {
+                hideAppLibrary();
+                return true;
+            }
+            if (!libraryVisible && keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+                    && carouselView != null && getCurrentFocus() == carouselView) {
+                // The app library is a vertical navigation destination, not a visible button.
+                showAppLibrary();
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT && carouselView != null
+                    && getCurrentFocus() == carouselView && carouselView.getSelectedIndex() == 0
+                    && pinnedAppsWheel != null && pinnedAppsWheel.getVisibility() == View.VISIBLE
+                    && !pinnedWheelSlotViews.isEmpty()) {
+                View center = getPinnedWheelCenterChild();
+                if (center != null) center.requestFocus();
+                return true;
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && carouselView != null
+                    && getCurrentFocus() == carouselView
+                    && carouselView.getItemCount() > 0
+                    && carouselView.getSelectedIndex() >= carouselView.getItemCount() - 1) {
+                if (continueWatchingWheel != null && continueWatchingWheel.hasItems()) {
+                    View center = continueWatchingWheel.getCenterChild();
+                    if (center != null) center.requestFocus();
+                    return true;
+                }
+            }
+            if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && pinnedAppsWheel != null) {
+                View focus = getCurrentFocus();
+                if (focus != null && isDescendantOf(focus, pinnedAppsWheel)) {
+                    carouselView.requestFocus();
+                    return true;
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (updateManager != null) updateManager.onPause();
+        unregisterDisplayModeListener();
+        if (backgroundManager != null) {
+            backgroundManager.onPause();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (updateManager != null) updateManager.close();
+        if (hudColorAnimator != null) hudColorAnimator.cancel();
+        super.onDestroy();
+        if (weatherWidgetManager != null) weatherWidgetManager.close();
+        if (backgroundManager != null) {
+            backgroundManager.onDestroy();
+        }
+        if (timeTickReceiver != null) {
+            try {
+                unregisterReceiver(timeTickReceiver);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_TV_LISTINGS_PERMISSION) {
+            watchNextPermissionRequestInFlight = false;
+            boolean granted = grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            if (granted) {
+                Log.i(TAG, "Read access to searchable TV listings was granted.");
+                refreshContinueWatchingWheel();
+            } else {
+                Log.w(TAG, "TV listings access was denied; other apps' Watch Next rows may be hidden.");
+                Toast.makeText(this,
+                        "Sin permiso de lectura de TV, «Continuar viendo» puede no mostrar contenido de otras aplicaciones.",
+                        Toast.LENGTH_LONG).show();
+            }
+            promptUsageAccessIfNeeded();
+            return;
+        }
+        if (weatherWidgetManager != null && weatherWidgetManager.handlesPermissionRequest(requestCode)) {
+            boolean granted = grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            weatherWidgetManager.onLocationPermissionResult(granted);
+            promptUsageAccessIfNeeded();
+            updateClockAndDate();
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (controlManager != null && controlManager.handleActivityResult(requestCode, resultCode, data)) {
+            if (backgroundManager != null) backgroundManager.loadLocalBackgrounds();
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (libraryVisible) {
+            hideAppLibrary();
+            return;
+        }
+        // Annex D.3: Back never exits launcher accidentally.
+        View currentFocus = getCurrentFocus();
+        focusController.handleBackPressed(currentFocus);
+    }
+}

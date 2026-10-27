@@ -1,0 +1,491 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root_container"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/black">
+
+    <!-- Dual ImageView for smooth 600ms crossfade background rotation (Annex C.2) -->
+    <ImageView
+        android:id="@+id/bg_image_a"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:src="@drawable/default_wallpaper" />
+
+    <ImageView
+        android:id="@+id/bg_image_b"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:alpha="0"
+        android:src="@drawable/default_wallpaper" />
+
+    <!-- Top and Bottom Scrim Gradients (Annex C.1) -->
+    <View
+        android:id="@+id/scrim_top"
+        android:layout_width="match_parent"
+        android:layout_height="140dp"
+        android:layout_gravity="top"
+        android:background="@drawable/scrim_top" />
+
+    <View
+        android:id="@+id/scrim_bottom"
+        android:layout_width="match_parent"
+        android:layout_height="280dp"
+        android:layout_gravity="bottom"
+        android:background="@drawable/scrim_bottom" />
+
+    <!-- Main Content Container with Safe Margins (5% H, 4% W) -->
+    <RelativeLayout
+        android:id="@+id/safe_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:paddingLeft="@dimen/safe_margin_horizontal"
+        android:paddingRight="@dimen/safe_margin_horizontal"
+        android:paddingTop="@dimen/safe_margin_vertical"
+        android:paddingBottom="@dimen/safe_margin_vertical">
+
+        <!-- Top Left: Clock and Date (Annex C.4) -->
+        <LinearLayout
+            android:id="@+id/clock_container"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentStart="true"
+            android:layout_alignParentTop="true"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/tv_clock"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#F3FBFF"
+                android:textSize="38sp"
+                android:fontFamily="sans-serif-black"
+                android:textStyle="bold"
+                android:letterSpacing="0.035"
+                android:shadowColor="#D000CFFF"
+                android:shadowDx="0"
+                android:shadowDy="0"
+                android:shadowRadius="9"
+                android:text="12:00" />
+
+            <TextView
+                android:id="@+id/tv_date"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#A8E8FF"
+                android:textSize="16sp"
+                android:fontFamily="sans-serif-medium"
+                android:textStyle="bold"
+                android:letterSpacing="0.025"
+                android:shadowColor="#A000BFFF"
+                android:shadowDx="0"
+                android:shadowDy="0"
+                android:shadowRadius="5"
+                android:text="Lunes, 26 de octubre" />
+        </LinearLayout>
+
+        <!-- Compact weather beside the clock; never reflows the clock/date column. -->
+        <TextView
+            android:id="@+id/tv_weather"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_toEndOf="@id/clock_container"
+            android:layout_alignParentTop="true"
+            android:layout_marginStart="14dp"
+            android:layout_marginTop="4dp"
+            android:maxWidth="205dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="7dp"
+            android:paddingBottom="7dp"
+            android:background="@drawable/weather_hud_bg"
+            android:gravity="start|center_vertical"
+            android:text="Clima · activar ubicación"
+            android:textColor="#B8F6FF"
+            android:textSize="11sp"
+            android:fontFamily="sans-serif-condensed"
+            android:letterSpacing="0.025"
+            android:lineSpacingExtra="2dp"
+            android:shadowColor="#A020DFFF"
+            android:shadowDx="0"
+            android:shadowDy="0"
+            android:shadowRadius="3"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:focusable="false"
+            android:clickable="true"
+            android:contentDescription="Clima y ubicación automática. Pulsa para configurar." />
+
+        <!-- Top Right: Inputs, Wi-Fi, Settings, and Google Assistant Search -->
+        <LinearLayout
+            android:id="@+id/controls_container"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentEnd="true"
+            android:layout_alignParentTop="true"
+            android:orientation="horizontal"
+            android:clipChildren="false"
+            android:clipToPadding="false">
+
+            <FrameLayout
+                android:id="@+id/btn_inputs"
+                android:layout_width="68dp"
+                android:layout_height="@dimen/control_button_size"
+                android:layout_marginEnd="@dimen/control_button_spacing"
+                android:background="@drawable/control_button_bg"
+                android:focusable="true"
+                android:clickable="true"
+                android:nextFocusLeft="@id/btn_inputs"
+                android:nextFocusRight="@id/btn_wifi"
+                android:nextFocusDown="@id/app_carousel">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="@string/control_inputs"
+                    android:textSize="9sp"
+                    android:singleLine="true"
+                    android:includeFontPadding="false"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/btn_wifi"
+                android:layout_width="@dimen/control_button_size"
+                android:layout_height="@dimen/control_button_size"
+                android:layout_marginEnd="@dimen/control_button_spacing"
+                android:background="@drawable/control_button_bg"
+                android:focusable="true"
+                android:clickable="true"
+                android:nextFocusLeft="@id/btn_inputs"
+                android:nextFocusRight="@id/btn_settings"
+                android:nextFocusDown="@+id/app_carousel">
+
+                <TextView
+                    android:id="@+id/tv_wifi_icon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="WIFI"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/btn_settings"
+                android:layout_width="@dimen/control_button_size"
+                android:layout_height="@dimen/control_button_size"
+                android:background="@drawable/control_button_bg"
+                android:focusable="true"
+                android:clickable="true"
+                android:contentDescription="@string/control_settings"
+                android:nextFocusLeft="@id/btn_wifi"
+                android:nextFocusRight="@id/btn_settings"
+                android:nextFocusDown="@+id/app_carousel">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:gravity="center"
+                    android:paddingStart="1dp"
+                    android:paddingEnd="1dp"
+                    android:text="@string/control_settings_short"
+                    android:textSize="8sp"
+                    android:maxLines="1"
+                    android:singleLine="true"
+                    android:includeFontPadding="false"
+                    android:ellipsize="end"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary"
+                    android:shadowColor="#80FFFFFF"
+                    android:shadowDx="0"
+                    android:shadowDy="0"
+                    android:shadowRadius="3" />
+            </FrameLayout>
+            <FrameLayout
+                android:id="@+id/btn_photos"
+                android:layout_width="@dimen/control_button_size"
+                android:layout_height="@dimen/control_button_size"
+                android:layout_marginStart="@dimen/control_button_spacing"
+                android:background="@drawable/control_button_bg"
+                android:focusable="true"
+                android:clickable="true"
+                android:contentDescription="@string/control_photos"
+                android:nextFocusLeft="@id/btn_settings"
+                android:nextFocusRight="@id/btn_search"
+                android:nextFocusDown="@id/app_carousel">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="FOTOS"
+                    android:textSize="8sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/text_primary" />
+            </FrameLayout>
+
+            <FrameLayout
+                android:id="@+id/btn_search"
+                android:layout_width="@dimen/control_button_size"
+                android:layout_height="@dimen/control_button_size"
+                android:layout_marginStart="@dimen/control_button_spacing"
+                android:background="@drawable/control_button_bg"
+                android:focusable="true"
+                android:clickable="true"
+                android:contentDescription="@string/control_search"
+                android:nextFocusLeft="@id/btn_photos"
+                android:nextFocusRight="@id/btn_search"
+                android:nextFocusDown="@id/app_carousel">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:text="⌕"
+                    android:textSize="26sp"
+                    android:textColor="@color/text_primary" />
+            </FrameLayout>
+        </LinearLayout>
+
+        <!-- Open Central Area (Annex C.1: Empty, no cards/widgets) -->
+        <View
+            android:id="@+id/central_open_space"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_below="@id/clock_container"
+            android:layout_above="@+id/carousel_section" />
+
+        <!-- Edge-anchored pinned-app semicircle. Only five icons are rendered at once.
+             The invisible half of the wheel extends beyond the physical left edge. -->
+        <FrameLayout
+            android:id="@+id/pinned_apps_scroll"
+            android:layout_width="180dp"
+            android:layout_height="0dp"
+            android:layout_alignParentStart="true"
+            android:layout_alignParentTop="true"
+            android:background="@android:color/transparent"
+            android:visibility="gone"
+            android:clipChildren="false"
+            android:clipToPadding="false">
+            <FrameLayout
+                android:id="@+id/pinned_apps_wheel"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@android:color/transparent"
+                android:clipChildren="false"
+                android:clipToPadding="false" />
+        </FrameLayout>
+
+        <!-- Independent right-edge wheel for rows published to the system Watch Next provider. -->
+        <com.cinematic.tvlauncher.carousel.ContinueWatchingWheelView
+            android:id="@+id/continue_watching_wheel"
+            android:layout_width="210dp"
+            android:layout_height="0dp"
+            android:layout_alignParentEnd="true"
+            android:layout_alignParentTop="true"
+            android:visibility="gone"
+            android:background="@android:color/transparent"
+            android:clipChildren="false"
+            android:clipToPadding="false" />
+
+        <TextView
+            android:id="@+id/continue_watching_heading"
+            android:layout_width="210dp"
+            android:layout_height="18dp"
+            android:layout_alignParentEnd="true"
+            android:layout_alignParentTop="true"
+            android:gravity="center"
+            android:text="CONTINUAR VIENDO"
+            android:textColor="@color/text_secondary"
+            android:textSize="9sp"
+            android:fontFamily="sans-serif-medium"
+            android:textStyle="bold"
+            android:letterSpacing="0.12"
+            android:shadowColor="#A0000000"
+            android:shadowDx="0"
+            android:shadowDy="1"
+            android:shadowRadius="3"
+            android:focusable="false"
+            android:clickable="false"
+            android:visibility="gone" />
+
+        <!-- Bottom Carousel Band (Annex C.1: ~24% H, inside safe margin) -->
+        <LinearLayout
+            android:id="@+id/carousel_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentBottom="true"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
+
+            <!-- Dynamic Horizontal Carousel Container -->
+            <FrameLayout
+                android:id="@+id/carousel_viewport"
+                android:layout_width="match_parent"
+                android:layout_height="130dp"
+                android:layout_marginBottom="30dp"
+                android:clipChildren="false"
+                android:clipToPadding="false">
+
+                <com.cinematic.tvlauncher.carousel.AppCarouselView
+                    android:id="@+id/app_carousel"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:focusable="true"
+                    android:clickable="true"
+                    android:nextFocusUp="@id/btn_inputs"
+                    android:nextFocusDown="@id/app_carousel"
+                    android:clipChildren="false"
+                    android:clipToPadding="false" />
+            </FrameLayout>
+
+            <!-- Application names are rendered in the cards; keep the legacy label hidden. -->
+            <TextView
+                android:id="@+id/tv_focused_app_label"
+                android:visibility="gone"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:textColor="@color/text_primary"
+                android:textSize="18sp"
+                android:fontFamily="sans-serif-black"
+                android:textStyle="bold"
+                android:shadowColor="#D0000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="5"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:text="" />
+
+
+        </LinearLayout>
+
+    </RelativeLayout>
+
+    <!-- Same-screen library overlay: wallpaper and its crossfade layers stay behind it. -->
+    <FrameLayout
+        android:id="@+id/app_library_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:background="@android:color/transparent"
+        android:clipChildren="false"
+        android:clipToPadding="false">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#0A080E18" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:paddingStart="@dimen/safe_margin_horizontal"
+            android:paddingEnd="@dimen/safe_margin_horizontal"
+            android:paddingTop="@dimen/safe_margin_vertical"
+            android:paddingBottom="@dimen/safe_margin_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/app_library_title"
+                android:textColor="@color/text_primary"
+                android:textSize="30sp"
+                android:fontFamily="sans-serif-black"
+                android:textStyle="bold"
+                android:shadowColor="#C0000000"
+                android:shadowDx="1"
+                android:shadowDy="2"
+                android:shadowRadius="4" />
+
+            <Space
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="180dp"
+                android:clipChildren="false"
+                android:clipToPadding="false">
+
+                <com.cinematic.tvlauncher.carousel.AppCarouselView
+                    android:id="@+id/library_carousel"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:focusable="true"
+                    android:clickable="true"
+                    android:clipChildren="false"
+                    android:clipToPadding="false" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/library_selected_label"
+                android:visibility="gone"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="10dp"
+                android:textColor="@color/text_primary"
+                android:textSize="18sp"
+                android:fontFamily="sans-serif-black"
+                android:textStyle="bold"
+                android:shadowColor="#D0000000"
+                android:shadowDx="1"
+                android:shadowDy="2"
+                android:shadowRadius="4"
+                android:maxLines="1"
+                android:ellipsize="end" />
+
+            <Space
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- HDMI passthrough view, kept in the same activity so source selection is actionable. -->
+    <FrameLayout
+        android:id="@+id/input_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:background="@android:color/transparent">
+
+        <android.media.tv.TvView
+            android:id="@+id/tv_input_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/btn_close_input"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:layout_margin="28dp"
+            android:paddingHorizontal="18dp"
+            android:paddingVertical="10dp"
+            android:text="VOLVER"
+            android:textColor="@color/text_primary"
+            android:background="@drawable/control_button_bg"
+            android:focusable="true"
+            android:clickable="true"
+            android:onClick="closeInputOverlayFromView" />
+    </FrameLayout>
+
+</FrameLayout>
