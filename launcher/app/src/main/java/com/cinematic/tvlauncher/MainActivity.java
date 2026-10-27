@@ -108,6 +108,9 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private final int[] focusRootLocation = new int[2];
     private final List<AppItem> pinnedWheelItems = new java.util.ArrayList<>();
     private final List<ImageView> pinnedWheelSlotViews = new ArrayList<>();
+    // Cache per-package icon-derived colors for the navigation marker only.
+    private final android.util.LruCache<String, Integer> iconAccentCache =
+            new android.util.LruCache<>(128);
     private int pinnedWheelSelectedIndex = 0;
     private boolean pinnedWheelAnimating = false;
     private boolean rebuildingPinnedWheel = false;
@@ -730,6 +733,19 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         animator.start();
     }
 
+    private int getAppIconAccent(AppItem item) {
+        if (item == null) return IconAccentSampler.sample(null);
+        String packageName = item.getPackageName();
+        if (packageName != null) {
+            Integer cached = iconAccentCache.get(packageName);
+            if (cached != null) return cached;
+        }
+        // The source Drawable is read only for color sampling. No tint/filter is applied.
+        int accent = IconAccentSampler.sample(item.getIcon());
+        if (packageName != null) iconAccentCache.put(packageName, accent);
+        return accent;
+    }
+
     private void updateFocusPositionDot(View anchor) {
         updateFocusPositionDot(anchor, false);
     }
@@ -753,6 +769,15 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             fixedCarouselSlot = true;
             usesSelectionAccent = true;
             selectionAccent = libraryCarousel.getSelectedAccentColor();
+        } else if (pinnedAppsWheel != null
+                && (anchor == pinnedAppsWheel || isDescendantOf(anchor, pinnedAppsWheel))) {
+            View pinnedTarget = anchor == pinnedAppsWheel ? getPinnedWheelCenterChild() : anchor;
+            if (pinnedTarget != null) target = pinnedTarget;
+            Object tag = target.getTag();
+            if (tag instanceof AppItem) {
+                selectionAccent = getAppIconAccent((AppItem) tag);
+                usesSelectionAccent = true;
+            }
         } else if (continueWatchingWheel != null
                 && (anchor == continueWatchingWheel || isDescendantOf(anchor, continueWatchingWheel))) {
             selectionAccent = continueWatchingWheel.getAccentColorForTarget(anchor);
