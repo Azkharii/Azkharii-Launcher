@@ -3,9 +3,13 @@ plugins {
 }
 
 // Release workflows pass APP_VERSION_CODE to keep public release tags and APK metadata in sync.
+// Use a monotonically increasing default for local Termux builds so Android accepts
+// an in-place update instead of rejecting the APK as an older version.
+def localVersionCode = (System.currentTimeMillis() / 60000L).toString()
 def ciVersionCode = (System.getenv('APP_VERSION_CODE')
         ?: System.getenv('GITHUB_RUN_NUMBER')
-        ?: project.findProperty('APP_VERSION_CODE') ?: '1').toString().toInteger()
+        ?: project.findProperty('APP_VERSION_CODE')
+        ?: localVersionCode).toString().toInteger()
 def ciVersionName = (System.getenv('APP_VERSION_NAME') ?: "1.0.${ciVersionCode}").toString()
 def releaseKeystorePath = System.getenv('RELEASE_KEYSTORE_PATH')
 def releaseKeystorePassword = System.getenv('RELEASE_KEYSTORE_PASSWORD')

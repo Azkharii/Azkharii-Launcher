@@ -55,7 +55,20 @@ jobs:
       - name: Run Unit Test Suite
         run: bash tools/run_tests.sh
 
+      - name: Compute installable debug version
+        id: debug_version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION_CODE="$(( $(date +%s) / 60 ))"
+          VERSION_NAME="1.0.${VERSION_CODE}"
+          echo "code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+
       - name: Build Debug APK
+        env:
+          APP_VERSION_CODE: ${{ steps.debug_version.outputs.code }}
+          APP_VERSION_NAME: ${{ steps.debug_version.outputs.name }}
         run: bash gradlew :launcher:app:assembleDebug --stacktrace --no-daemon
 
       - name: Inspect and Verify Generated APK
