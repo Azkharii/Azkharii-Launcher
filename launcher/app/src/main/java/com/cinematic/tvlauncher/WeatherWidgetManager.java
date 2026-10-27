@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * Small weather readout. Requests foreground approximate location only, caches
@@ -54,7 +55,10 @@ public final class WeatherWidgetManager {
     private boolean locationRequestInProgress;
     private LocationListener pendingLocationListener;
     private Runnable locationTimeout;
-    private boolean closed;
+    private volatile boolean closed;
+    private volatile boolean paused = true;
+    private volatile HttpURLConnection activeConnection;
+    private volatile Future<?> weatherTask;
 
     public WeatherWidgetManager(Activity activity, TextView label) {
         this.activity = activity;
@@ -68,6 +72,7 @@ public final class WeatherWidgetManager {
 
     public void refreshIfAllowed() {
         if (closed || label == null) return;
+        paused = false;
         showCachedOrPrompt();
         if (!hasLocationPermission()) return;
         if (System.currentTimeMillis() - preferences.getLong(KEY_UPDATED, 0L) < REFRESH_INTERVAL_MS) return;
@@ -111,9 +116,20 @@ public final class WeatherWidgetManager {
         }
     }
 
+    /** Stop location and network work as soon as another app covers the launcher. */
+    public void onPause() {
+        paused = true;
+        cancelPendingLocationRequest();
+        Future<?> task = weatherTask;
+        weatherTask = null;
+        if (task != null) task.cancel(true);
+        HttpURLConnection connection = activeConnection;
+        if (connection != null) connection.disconnect();
+    }
+
     public void close() {
         closed = true;
-        cancelPendingLocationRequest();
+        onPause();
         executor.shutdownNow();
     }
 
@@ -166,7 +182,7 @@ public final class WeatherWidgetManager {
     }
 
     private void requestLocation() {
-        if (closed || locationRequestInProgress || !hasLocationPermission()) return;
+        if (closed || paused || locationRequestInProgress || !hasLocationPermission()) return;
         LocationManager manager = (LocationManager) activity.getSystemService(Context.LOCATION_SERVICE);
         if (manager == null) {
             showUnavailable("Ubicación no disponible");
@@ -196,11 +212,11 @@ public final class WeatherWidgetManager {
 
     @SuppressWarnings("deprecation")
     private void requestOneShotLocation(LocationManager manager, Location fallback) {
-        if (closed || locationRequestInProgress) return;
+        if (closed || paused || locationRequestInProgress) return;
         locationRequestInProgress = true;
         LocationListener listener = new LocationListener() {
             @Override public void onLocationChanged(Location location) {
-                if (location == null || closed) return;
+                if (location == null || closed || paused) return;
                 cancelPendingLocationRequest();
                 fetchWeather(location);
             }
@@ -210,7 +226,7 @@ public final class WeatherWidgetManager {
         };
         pendingLocationListener = listener;
         locationTimeout = () -> {
-            if (!locationRequestInProgress || closed) return;
+            if (!locationRequestInProgress || closed || paused) return;
             cancelPendingLocationRequest();
             if (fallback != null) fetchWeather(fallback);
             else showUnavailable("Ubicación no disponible");
@@ -257,17 +273,21 @@ public final class WeatherWidgetManager {
     }
 
     private void fetchWeather(Location location) {
-        if (closed || location == null) return;
+        if (closed || paused || location == null) return;
         try {
-            executor.execute(() -> {
+            weatherTask = executor.submit(() -> {
                 HttpURLConnection connection = null;
                 try {
+                    if (closed || paused || Thread.currentThread().isInterrupted()) return;
                     String city = resolveLocationName(location);
+                    if (closed || paused || Thread.currentThread().isInterrupted()) return;
                     String query = String.format(Locale.US,
                             "https://api.open-meteo.com/v1/forecast?latitude=%.5f&longitude=%.5f"
                                     + "&current=temperature_2m,weather_code&temperature_unit=celsius&timezone=auto",
                             location.getLatitude(), location.getLongitude());
                     connection = (HttpURLConnection) new URL(query).openConnection();
+                    activeConnection = connection;
+                    if (closed || paused || Thread.currentThread().isInterrupted()) return;
                     connection.setRequestMethod("GET");
                     connection.setConnectTimeout(5000);
                     connection.setReadTimeout(5000);
@@ -281,19 +301,24 @@ public final class WeatherWidgetManager {
                         String line;
                         while ((line = reader.readLine()) != null) body.append(line);
                     }
+                    if (closed || paused || Thread.currentThread().isInterrupted()) return;
                     JSONObject current = new JSONObject(body.toString()).getJSONObject("current");
                     int temperature = (int) Math.round(current.getDouble("temperature_2m"));
                     int code = current.getInt("weather_code");
                     String summary = weatherIcon(code) + " " + temperature + "°C";
                     String place = TextUtils.isEmpty(city) ? "Ubicación automática" : city;
+                    if (closed || paused || Thread.currentThread().isInterrupted()) return;
                     preferences.edit().putString(KEY_SUMMARY, summary).putString(KEY_LOCATION, place)
                             .putLong(KEY_UPDATED, System.currentTimeMillis()).apply();
-                    mainHandler.post(() -> { if (!closed) render(summary, place); });
+                    mainHandler.post(() -> { if (!closed && !paused) render(summary, place); });
                 } catch (Exception e) {
-                    Log.w(TAG, "Unable to update weather", e);
-                    mainHandler.post(() -> { if (!closed) showCachedOrUnavailable(); });
+                    if (!closed && !paused && !Thread.currentThread().isInterrupted()) {
+                        Log.w(TAG, "Unable to update weather", e);
+                        mainHandler.post(() -> { if (!closed && !paused) showCachedOrUnavailable(); });
+                    }
                 } finally {
                     if (connection != null) connection.disconnect();
+                    if (activeConnection == connection) activeConnection = null;
                 }
             });
         } catch (java.util.concurrent.RejectedExecutionException ignored) {}
