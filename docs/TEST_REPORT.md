@@ -160,3 +160,29 @@ The automatic update path remains implemented but is not deployable against the 
 - Poster display still depends on the Watch Next provider publishing artwork and the URI/network responding; an instant load cannot be guaranteed when the source itself is slow.
 - The requested replacement launcher icon/banner has **not** been applied: the provided Google Photos share URL did not expose downloadable image bytes to the work environment. Keep the existing assets until the actual PNG/JPG image is provided; do not substitute an unrelated image.
 
+
+
+## Navigation marker, Watch Next visibility and OTA setup — 2026-10-27
+
+- **Validated source commit:** `51b19c51356030e5b2f2afbc35f7e2e17432ed35`.
+- **Hosted CI:** [Run 40469260598](https://github.com/Azkharii/Azkharii-Launcher/actions/runs/40469260598) — integrity/quality checks PASS, **7/7 test suites PASS**, Debug APK build and inspection PASS, artifact upload PASS.
+- **Debug APK:** [cinematic-tv-launcher-debug artifact](https://github.com/Azkharii/Azkharii-Launcher/actions/runs/40469260598/artifacts/12718027183); size **3,276,434 bytes**; APK SHA-256 `94b17e8155b2f5c8dedf35d5c1983269b39cf96958cc1c9f846e0fc67e85c791`. This is a debug APK, not the stable signed OTA package.
+
+### Navigation indicator
+
+- The selected app icon is sampled without a tint or color filter. The navigation dot uses that color in the recent-app carousel and app library, pinned-app wheel, and Continue Watching wheel.
+- The Continue Watching marker samples the publisher app's icon rather than poster art. Missing app icons use a neutral fallback, never a wallpaper accent.
+- The HUD's wallpaper adaptation remains limited to clock/date/weather. Device appearance and rapid remote-focus changes still require on-TV validation.
+
+### Continue Watching section
+
+- The card title remains centered inside its card. It does not control the wheel's visibility.
+- The provider now preserves real rows with a valid, non-placeholder title even when the TV exposes no usable resume URI and the publisher package cannot be launched. The click handler still reports when it cannot open the item.
+- The section remains hidden when the system provider returns no titled rows or denies access. The hosted build cannot prove that a physical TV exposes Watch Next records or that publishers provide artwork. Real hardware verification remains **NOT TESTED**.
+
+### Public releases and OTA
+
+- `UpdateManager` now queries the public feed at `https://api.github.com/repos/Azkharii/Azkharii-Launcher/releases/latest`.
+- The release workflow computes a monotonically increasing release version, builds a release APK signed with a persistent key, and publishes the APK plus SHA-256 file to GitHub Releases on changes to `main`.
+- No public release currently exists. The release workflow requires four persistent Actions secrets (documented in [docs/RELEASING.md](RELEASING.md)); it fails rather than publishing an unsigned or ephemeral-key build when they are missing. Install a signed release before expecting OTA checks; debug builds use a different application ID and intentionally skip updater checks.
+- The supplied Google Photos short link did not expose image bytes in the available environment; launcher icon/banner remain unchanged rather than being replaced with guessed artwork.
