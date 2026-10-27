@@ -66,9 +66,22 @@ jobs:
           chmod 600 "$RUNNER_TEMP/cinematic-tv-release.jks"
           echo "available=true" >> "$GITHUB_OUTPUT"
 
+      - name: Calculate monotonic public version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION_CODE=$((1000 + GITHUB_RUN_NUMBER))
+          VERSION_NAME="1.0.${VERSION_CODE}"
+          echo "code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Public release version: ${VERSION_NAME} (versionCode ${VERSION_CODE})" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Build signed release APK
         if: steps.signing.outputs.available == 'true'
         env:
+          APP_VERSION_CODE: ${{ steps.version.outputs.code }}
+          APP_VERSION_NAME: ${{ steps.version.outputs.name }}
           RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/cinematic-tv-release.jks
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -101,8 +114,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="v1.0.${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG" cinematic-tv-launcher-release.apk cinematic-tv-launcher-release.apk.sha256 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --notes "Automated signed release from commit $GITHUB_SHA. Android versionCode: $GITHUB_RUN_NUMBER."
+          VERSION_CODE="${{ steps.version.outputs.code }}"
+          VERSION_NAME="${{ steps.version.outputs.name }}"
+          TAG="v${VERSION_NAME}"
+          gh release create "$TAG" cinematic-tv-launcher-release.apk cinematic-tv-launcher-release.apk.sha256 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Cinematic TV Launcher ${VERSION_NAME}" --notes "Automated signed release from commit $GITHUB_SHA. Android versionName: ${VERSION_NAME}. Android versionCode: ${VERSION_CODE}."
 
       - name: Explain private-repository limitation
         if: steps.signing.outputs.available == 'true' && github.event.repository.private == true
