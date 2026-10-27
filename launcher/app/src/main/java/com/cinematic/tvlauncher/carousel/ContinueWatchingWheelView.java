@@ -28,6 +28,7 @@ import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.List;
+import com.cinematic.tvlauncher.IconAccentSampler;
 import com.cinematic.tvlauncher.navigation.PinnedWheelSlotOrder;
 import com.cinematic.tvlauncher.WatchNextEntryPolicy;
 import com.cinematic.tvlauncher.WatchNextRepository;
