@@ -61,7 +61,7 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             {
               echo "## Release blocked: persistent signing key is not configured"
-              echo "Add the four repository Actions secrets documented in [docs/RELEASING.md](../blob/main/docs/RELEASING.md)."
+              echo "Add the four repository Actions secrets documented at https://github.com/Azkharii/Azkharii-Launcher/blob/main/docs/RELEASING.md."
               echo "No APK has been published; this avoids producing an update signed with an ephemeral or unsafe key."
             } >> "$GITHUB_STEP_SUMMARY"
             echo "Release signing secrets are missing. Configure them as documented in docs/RELEASING.md."
