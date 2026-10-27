@@ -1478,6 +1478,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         if (backgroundManager != null) {
             backgroundManager.onResume();
         }
+        if (continueWatchingWheel != null) continueWatchingWheel.resumeBackgroundWork();
         if (controlManager != null) {
             controlManager.updateWifiIndicator();
         }
@@ -1586,6 +1587,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         unregisterDisplayModeListener();
         // Stop wallpaper, weather, and adaptive-HUD work while another app is foreground.
         if (weatherWidgetManager != null) weatherWidgetManager.onPause();
+        if (continueWatchingWheel != null) continueWatchingWheel.pauseBackgroundWork();
         hudColorGeneration++;
         if (hudColorAnimator != null) {
             hudColorAnimator.cancel();
