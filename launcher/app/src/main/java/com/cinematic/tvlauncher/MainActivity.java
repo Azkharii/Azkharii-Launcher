@@ -1584,6 +1584,13 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         super.onPause();
         if (updateManager != null) updateManager.onPause();
         unregisterDisplayModeListener();
+        // Stop wallpaper, weather, and adaptive-HUD work while another app is foreground.
+        if (weatherWidgetManager != null) weatherWidgetManager.onPause();
+        hudColorGeneration++;
+        if (hudColorAnimator != null) {
+            hudColorAnimator.cancel();
+            hudColorAnimator = null;
+        }
         if (backgroundManager != null) {
             backgroundManager.onPause();
         }
