@@ -132,7 +132,8 @@ public final class WatchNextRepository {
 
             int rowsRead = 0;
             int skippedTypes = 0;
-            int skippedWithoutRoute = 0;
+            int skippedWithoutTitle = 0;
+            int rowsWithoutRoute = 0;
             int rowsWithoutArtwork = 0;
             java.util.Map<String, Integer> publisherRowCounts = new java.util.HashMap<>();
             java.util.Map<String, Integer> publisherTypeCounts = new java.util.HashMap<>();
@@ -155,15 +156,23 @@ public final class WatchNextRepository {
                 }
 
                 String title = cursor.getString(titleColumn);
+                if (!WatchNextEntryPolicy.hasDisplayableTitle(title)) {
+                    skippedWithoutTitle++;
+                    continue;
+                }
+
                 String intentUri = intentColumn >= 0 ? cursor.getString(intentColumn) : null;
                 boolean supportedResumeIntent = isSupportedResumeIntent(intentUri);
                 boolean launchablePublisher = hasLaunchablePublisher(packageName);
+                // Keep genuine, titled Watch Next rows visible even if this TV's provider
+                // omits an actionable URI and its publisher package is not launchable. The
+                // click handler will explain when neither safe route is available; silently
+                // dropping every such row made the complete section disappear.
                 if (!WatchNextEntryPolicy.hasDisplayableData(
                         title,
                         supportedResumeIntent ? intentUri : null,
                         launchablePublisher ? packageName : null)) {
-                    skippedWithoutRoute++;
-                    continue;
+                    rowsWithoutRoute++;
                 }
                 if (!supportedResumeIntent) intentUri = null;
 
@@ -202,7 +211,8 @@ public final class WatchNextRepository {
             Log.d(TAG, "Watch Next query: rowsRead=" + rowsRead
                     + ", accepted=" + result.size()
                     + ", skippedType=" + skippedTypes
-                    + ", skippedWithoutRoute=" + skippedWithoutRoute
+                    + ", skippedWithoutTitle=" + skippedWithoutTitle
+                    + ", rowsWithoutRoute=" + rowsWithoutRoute
                     + ", rowsWithoutArtwork=" + rowsWithoutArtwork
                     + ", publishers=" + publisherRowCounts
                     + ", publisherTypes=" + publisherTypeCounts);
