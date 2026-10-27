@@ -944,7 +944,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
         hudColorAnimator = animator;
         // Ease into the new, deliberately muted wallpaper accent instead of flashing to neon.
-        animator.setDuration(2200L);
+        animator.setDuration(5200L);
         animator.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
         animator.addUpdateListener(animation -> {
             float fraction = (float) animation.getAnimatedValue();
@@ -953,7 +953,10 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         });
         animator.addListener(new android.animation.AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) {
-                if (hudColorAnimator == animator) hudColorAnimator = null;
+                // A cancelled animation can also receive onAnimationEnd. Only the active
+                // animator may commit its target, otherwise an obsolete wallpaper tint jumps in.
+                if (hudColorAnimator != animator) return;
+                hudColorAnimator = null;
                 applyAdaptiveHudAccent(targetAccent);
             }
             @Override public void onAnimationCancel(Animator animation) {
@@ -987,13 +990,23 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         int r = Color.red(accent);
         int g = Color.green(accent);
         int b = Color.blue(accent);
+        float[] accentHsv = new float[3];
+        Color.colorToHSV(accent, accentHsv);
+        // Keep the HUD text bright for TV-distance readability while making its hue
+        // visibly follow the wallpaper instead of leaving the clock almost pure white.
+        int clockTextColor = Color.HSVToColor(new float[] {
+                accentHsv[0], Math.max(0.12f, Math.min(0.30f, accentHsv[1] * 0.62f)), 0.98f
+        });
+        int weatherTextColor = Color.HSVToColor(new float[] {
+                accentHsv[0], Math.max(0.18f, Math.min(0.40f, accentHsv[1] * 0.90f)), 0.96f
+        });
         if (focusPositionDotBackground != null && !focusPositionUsesSelectionAccent) {
             focusPositionDotBackground.setColor(accent);
             focusPositionDotBackground.setStroke(Math.max(1, dp(1)), 0xCCFFFFFF);
             focusPositionDot.invalidate();
         }
         if (tvClock != null) {
-            tvClock.setTextColor(Color.rgb(246, 251, 255));
+            tvClock.setTextColor(clockTextColor);
             tvClock.setShadowLayer(dp(6), 0f, 0f, Color.argb(118, r, g, b));
         }
         if (tvDate != null) {
@@ -1001,11 +1014,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             tvDate.setShadowLayer(dp(3), 0f, 0f, Color.argb(92, r, g, b));
         }
         if (tvWeather != null) {
-            // Preserve a near-white label; the wallpaper contributes a subtle tint only.
-            int weatherR = Math.round(246f * 0.82f + r * 0.18f);
-            int weatherG = Math.round(249f * 0.82f + g * 0.18f);
-            int weatherB = Math.round(252f * 0.82f + b * 0.18f);
-            tvWeather.setTextColor(Color.rgb(weatherR, weatherG, weatherB));
+            // Use the same smoothly interpolated wallpaper hue, with a bright text value.
+            tvWeather.setTextColor(weatherTextColor);
             int[] glassColors = {
                     Color.argb(24, r, g, b),
                     Color.argb(88, 8, 14, 26),
