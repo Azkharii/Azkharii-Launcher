@@ -140,3 +140,23 @@ The automatic update path remains implemented but is not deployable against the 
 - **Physical TV: NOT TESTED.** Hosted CI proves compilation and unit tests, not that the Hisense UI maintains a target frame rate or that the multicolor edge looks ideal at normal TV viewing distance. Actual FPS was not measured after removing the automatic debug probe.
 - **YouTube Watch Next:** package visibility does not create provider rows. The launcher can only show genuine titles/posters/resume actions that the system provider or the media app actually publishes.
 - **Potential next optimization:** the full-app library still creates its app-card views when the library list is loaded. A virtualized/recycled card window could reduce peak view memory for very large app lists, but that changes card binding and D-pad focus lifecycle and should be a separate, device-validated refactor rather than deleting working navigation code blindly.
+
+## Natural HUD color and Watch Next artwork loading — 2026-10-27
+
+- **Branch / PR:** `fix/natural-hud-watch-next-loading` · [PR #1](https://github.com/Azkharii/Azkharii-Launcher/pull/1), currently draft.
+- **Code commit tested:** `e60f42a354bb1b4dbf9e510d9d971a2cab03b8ed`.
+- **Hosted CI:** [Run 40467103067](https://github.com/Azkharii/Azkharii-Launcher/actions/runs/40467103067) — repository integrity/quality checks PASS; **7/7 unit test suites PASS**; debug APK assembly and inspection PASS; artifact upload PASS.
+- **Debug APK:** [cinematic-tv-launcher-debug artifact](https://github.com/Azkharii/Azkharii-Launcher/actions/runs/40467103067/artifacts/12715929946); **3,273,866 bytes**; SHA-256 `1b7d2763c2164fca3c3ac1abdfc68602cc718478a5ca21b6c8ff8fb986ba1a41`. This is a debug build; it has not been installed on the TV.
+
+### Changes
+
+- Wallpaper accent extraction now favors the dominant usable hue, reduces saturation and brightness, and softens clock/date/weather shadows and the weather glass edge.
+- Watch Next artwork is read once into a bounded byte array and decoded from the same bytes, avoiding a second resource/network open. HTTP(S) connection/read timeouts were shortened and visible poster work is processed by three workers.
+- Watch Next card title text explicitly uses centered text alignment. Pinned application icons retain their original artwork; the navigation marker continues using the wallpaper-derived accent in that wheel.
+
+### Remaining validation and limits
+
+- **Physical TV: NOT TESTED.** Hosted CI confirms compilation/tests only, not the perceived palette, actual load time, or frame rate on the Hisense TV.
+- Poster display still depends on the Watch Next provider publishing artwork and the URI/network responding; an instant load cannot be guaranteed when the source itself is slow.
+- The requested replacement launcher icon/banner has **not** been applied: the provided Google Photos share URL did not expose downloadable image bytes to the work environment. Keep the existing assets until the actual PNG/JPG image is provided; do not substitute an unrelated image.
+
