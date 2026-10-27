@@ -2,6 +2,12 @@ package com.cinematic.tvlauncher;
 
 public final class WatchNextEntryPolicyTest {
     public static void runTests() {
+        check(WatchNextEntryPolicy.hasDisplayableTitle("  Movie title  "),
+                "real provider titles remain displayable without assuming a resume route");
+        check(!WatchNextEntryPolicy.hasDisplayableTitle("  "),
+                "blank provider titles are not displayable");
+        check(!WatchNextEntryPolicy.hasDisplayableTitle(" UNKNOWN "),
+                "placeholder titles are not displayable");
         check(WatchNextEntryPolicy.hasDisplayableData(
                 "Movie", "intent:#Intent;action=android.intent.action.VIEW;end"),
                 "row with a real title and provider resume intent is displayable");
@@ -40,7 +46,7 @@ public final class WatchNextEntryPolicyTest {
                 "progress is clamped at duration");
         check(WatchNextEntryPolicy.progressPercent(0L, 0L) == -1,
                 "missing duration must not fabricate progress");
-        System.out.println("  [PASS] WatchNextEntryPolicyTest (17 assertions)");
+        System.out.println("  [PASS] WatchNextEntryPolicyTest (20 assertions)");
     }
 
     private static void check(boolean condition, String message) {
