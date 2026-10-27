@@ -12,7 +12,7 @@
 
 El workflow no puede publicar una actualización instalable hasta configurar la clave de firma. El repositorio no tiene una release publicada y el workflow necesita secretos de firma en la configuración de GitHub. No se debe introducir una clave efímera por ejecución ni guardar un keystore o contraseñas en el repositorio público.
 
-1. Crear una clave persistente fuera del repositorio y guardarla de forma segura. Por ejemplo:
+1. **Antes de crear una clave nueva**, comprobar si ya se distribuyó una versión estable de `com.cinematic.tvlauncher` firmada desde el repositorio privado anterior. Si existe, recuperar y reutilizar exactamente ese keystore/alias/contraseñas; cambiar la clave impide actualizar esa instalación. Crear una clave nueva solo si no hay instalaciones estables firmadas con una clave anterior. La clave debe guardarse fuera del repositorio y de forma segura. Por ejemplo:
 
    ```sh
    keytool -genkeypair -v -keystore cinematic-tv-release.jks -alias launcher-release -keyalg RSA -keysize 4096 -validity 10000
