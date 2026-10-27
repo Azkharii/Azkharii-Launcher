@@ -33,6 +33,10 @@ import com.cinematic.tvlauncher.WatchNextEntryPolicy;
 import com.cinematic.tvlauncher.WatchNextRepository;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Read-only right-edge Watch Next wheel. Rows come exclusively from the system TV provider.
@@ -78,6 +82,10 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     private final Runnable scheduledRefresh = this::refreshFromSystem;
     private WatchNextRepository watchNextRepository;
     private int refreshGeneration;
+    private volatile boolean hostPaused = true;
+    private volatile Future<?> dataTask;
+    private final AtomicInteger artworkGeneration = new AtomicInteger();
+    private final Set<Future<?>> artworkTasks = java.util.Collections.synchronizedSet(new HashSet<>());
     private OnItemsChangedListener itemsChangedListener;
     private final List<FrameLayout> slotViews = new ArrayList<>();
 
@@ -154,19 +162,40 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     @Override
     protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        watchNextRepository.registerObserver(this::scheduleRefresh);
-        scheduleRefresh();
+        resumeBackgroundWork();
     }
 
     @Override
     protected void onDetachedFromWindow() {
-        refreshHandler.removeCallbacks(scheduledRefresh);
-        refreshGeneration++; // Ignore provider queries that finish after detachment.
-        watchNextRepository.unregisterObserver();
+        pauseBackgroundWork();
         super.onDetachedFromWindow();
     }
 
+    /** Resume Watch Next polling and poster work only while the launcher is foreground. */
+    public void resumeBackgroundWork() {
+        if (hostPaused) hostPaused = false;
+        watchNextRepository.registerObserver(this::scheduleRefresh);
+        scheduleRefresh();
+    }
+
+    /** Cancel queued Watch Next queries and poster work when another app is opened. */
+    public void pauseBackgroundWork() {
+        hostPaused = true;
+        refreshGeneration++;
+        artworkGeneration.incrementAndGet();
+        refreshHandler.removeCallbacks(scheduledRefresh);
+        watchNextRepository.unregisterObserver();
+        Future<?> query = dataTask;
+        dataTask = null;
+        if (query != null) query.cancel(true);
+        synchronized (artworkTasks) {
+            for (Future<?> task : artworkTasks) task.cancel(true);
+            artworkTasks.clear();
+        }
+    }
+
     private void scheduleRefresh() {
+        if (hostPaused) return;
         refreshHandler.removeCallbacks(scheduledRefresh);
         // Coalesce provider notifications before one background query.
         refreshHandler.postDelayed(scheduledRefresh, 200L);
@@ -181,17 +210,20 @@ public final class ContinueWatchingWheelView extends FrameLayout {
      * never creates media sessions, uses notification text, or synthesizes watch history.
      */
     public void refreshFromSystem() {
+        if (hostPaused) return;
         long previousId = items.isEmpty()
                 ? -1L : items.get(Math.floorMod(selectedIndex, items.size())).id;
         final int requestId = ++refreshGeneration;
 
-        DATA_EXECUTOR.execute(() -> {
+        try {
+        dataTask = DATA_EXECUTOR.submit(() -> {
+            if (hostPaused || Thread.currentThread().isInterrupted()) return;
             List<WatchNextRepository.Entry> entries = watchNextRepository.queryContinueWatching();
             List<MediaItem> result = new ArrayList<>(entries.size());
             for (WatchNextRepository.Entry entry : entries) result.add(new MediaItem(entry));
 
             post(() -> {
-                if (requestId != refreshGeneration) return;
+                if (hostPaused || requestId != refreshGeneration) return;
                 boolean sameContent = hasSameRenderedItems(result);
                 if (!sameContent) {
                     items.clear();
@@ -217,6 +249,9 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 if (itemsChangedListener != null) itemsChangedListener.onItemsChanged();
             });
         });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // The shared query executor may be shutting down with the process.
+        }
     }
 
     private boolean hasSameRenderedItems(List<MediaItem> nextItems) {
@@ -236,8 +271,9 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     }
 
     private void loadPosterArtworkAsync(MediaItem item, ImageView poster) {
-        if (item == null) return;
+        if (item == null || hostPaused) return;
         poster.setTag(item);
+        final int generation = artworkGeneration.get();
         if (item.posterArtUri == null) {
             Log.d(TAG, "No poster or thumbnail URI published for package="
                     + item.entry.getPackageName());
@@ -253,11 +289,11 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 applyPaletteToCard((View) poster.getParent(), item, cachedPalette);
             } else {
                 // A bitmap may outlive its small palette entry; recalculate off the UI thread.
-                ARTWORK_EXECUTOR.execute(() -> {
+                submitArtworkTask(generation, () -> {
                     int[] palette = sampleArtworkPalette(cached);
                     ARTWORK_PALETTE_CACHE.put(cacheKey, palette);
                     post(() -> {
-                        if (poster.getTag() == item) {
+                        if (!hostPaused && generation == artworkGeneration.get() && poster.getTag() == item) {
                             applyPaletteToCard((View) poster.getParent(), item, palette);
                         }
                     });
@@ -266,7 +302,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             return;
         }
 
-        ARTWORK_EXECUTOR.execute(() -> {
+        submitArtworkTask(generation, () -> {
             Bitmap decoded = ARTWORK_CACHE.get(cacheKey);
             int[] palette = ARTWORK_PALETTE_CACHE.get(cacheKey);
             if (decoded == null) {
@@ -291,13 +327,27 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 Bitmap ready = decoded;
                 int[] paletteReady = palette;
                 post(() -> {
-                    if (poster.getTag() == item) {
+                    if (!hostPaused && generation == artworkGeneration.get() && poster.getTag() == item) {
                         poster.setImageBitmap(ready);
                         applyPaletteToCard((View) poster.getParent(), item, paletteReady);
                     }
                 });
             }
         });
+    }
+
+    private void submitArtworkTask(int generation, Runnable work) {
+        if (hostPaused || generation != artworkGeneration.get()) return;
+        synchronized (artworkTasks) {
+            artworkTasks.removeIf(Future::isDone);
+            if (hostPaused || generation != artworkGeneration.get()) return;
+            Future<?> task = ARTWORK_EXECUTOR.submit(() -> {
+                if (hostPaused || generation != artworkGeneration.get()
+                        || Thread.currentThread().isInterrupted()) return;
+                work.run();
+            });
+            artworkTasks.add(task);
+        }
     }
 
     /** Applies poster colors on the UI thread after sampling has completed on the worker. */
