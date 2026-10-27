@@ -20,6 +20,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -56,7 +57,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     private static final int MAX_VISIBLE_ITEMS = 5;
     private static final String TAG = "ContinueWatching";
     private static final ExecutorService DATA_EXECUTOR = Executors.newSingleThreadExecutor();
-    private static final ExecutorService ARTWORK_EXECUTOR = Executors.newFixedThreadPool(2);
+    private static final ExecutorService ARTWORK_EXECUTOR = Executors.newFixedThreadPool(3);
+    private static final int MAX_ARTWORK_SOURCE_BYTES = 6 * 1024 * 1024;
     // Keep recently used poster bitmaps in memory so D-pad navigation never re-downloads/re-decodes them.
     private static final LruCache<String, Bitmap> ARTWORK_CACHE = new LruCache<String, Bitmap>(12 * 1024) {
         @Override protected int sizeOf(String key, Bitmap bitmap) {
@@ -308,20 +310,36 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     }
 
     private Bitmap decodePosterArtwork(Uri uri) throws IOException {
+        // Read the source once. Reopening remote/provider URIs for bounds and pixels could make
+        // each poster wait through two network timeouts before it appeared on the TV.
+        byte[] sourceBytes;
+        try (InputStream input = openArtworkStream(uri)) {
+            if (input == null) return null;
+            ByteArrayOutputStream output = new ByteArrayOutputStream(32 * 1024);
+            byte[] buffer = new byte[16 * 1024];
+            int totalBytes = 0;
+            int count;
+            while ((count = input.read(buffer)) != -1) {
+                totalBytes += count;
+                if (totalBytes > MAX_ARTWORK_SOURCE_BYTES) {
+                    throw new IOException("Watch Next artwork exceeds the 6 MiB source limit");
+                }
+                output.write(buffer, 0, count);
+            }
+            sourceBytes = output.toByteArray();
+        }
+        if (sourceBytes.length == 0) return null;
+
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
-        try (InputStream input = openArtworkStream(uri)) {
-            if (input != null) BitmapFactory.decodeStream(input, null, bounds);
-        }
+        BitmapFactory.decodeByteArray(sourceBytes, 0, sourceBytes.length, bounds);
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
 
         int sample = 1;
         while (bounds.outWidth / sample > 640 || bounds.outHeight / sample > 360) sample *= 2;
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = sample;
-        try (InputStream input = openArtworkStream(uri)) {
-            return input == null ? null : BitmapFactory.decodeStream(input, null, options);
-        }
+        return BitmapFactory.decodeByteArray(sourceBytes, 0, sourceBytes.length, options);
     }
 
     /**
@@ -332,9 +350,10 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         String scheme = uri.getScheme();
         if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
             URLConnection connection = new URL(uri.toString()).openConnection();
-            connection.setConnectTimeout(5000);
-            connection.setReadTimeout(5000);
+            connection.setConnectTimeout(3500);
+            connection.setReadTimeout(4000);
             connection.setUseCaches(true);
+            connection.setRequestProperty("Accept", "image/*,*/*;q=0.5");
             return connection.getInputStream();
         }
         if ("content".equalsIgnoreCase(scheme)
@@ -447,6 +466,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         title.setTextSize(8);
         title.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
         title.setGravity(Gravity.CENTER);
+        title.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
         title.setSingleLine(true);
         title.setEllipsize(TextUtils.TruncateAt.END);
         title.setIncludeFontPadding(false);
