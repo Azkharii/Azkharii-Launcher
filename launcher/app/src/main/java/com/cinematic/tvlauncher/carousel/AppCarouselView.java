@@ -19,6 +19,7 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 
+import com.cinematic.tvlauncher.IconAccentSampler;
 import com.cinematic.tvlauncher.model.AppItem;
 
 import java.util.ArrayDeque;
@@ -42,6 +43,9 @@ public class AppCarouselView extends FrameLayout {
     private final List<View> cardViews = new ArrayList<>();
     private final List<View> cardSurfaceViews = new ArrayList<>();
     private final List<Integer> cardColors = new ArrayList<>();
+    // Kept separate from card/glow colors so selecting an app changes only the
+    // navigation dot, not the existing artwork treatment or the icon itself.
+    private final List<Integer> selectionAccentColors = new ArrayList<>();
     private final List<AdaptiveGlowDrawable> cardGlows = new ArrayList<>();
     private int selectedIndex = 0;
     private int maxVisibleCardDistance = 3;
@@ -121,12 +125,12 @@ public class AppCarouselView extends FrameLayout {
         return null;
     }
 
-    /** Accent sampled from the selected app's real banner/icon, cached at card creation time. */
+    /** Dominant hue of the selected app icon, cached for the navigation dot only. */
     public int getSelectedAccentColor() {
-        if (selectedIndex >= 0 && selectedIndex < cardColors.size()) {
-            return cardColors.get(selectedIndex);
+        if (selectedIndex >= 0 && selectedIndex < selectionAccentColors.size()) {
+            return selectionAccentColors.get(selectedIndex);
         }
-        return Color.rgb(168, 232, 255);
+        return Color.rgb(168, 205, 220);
     }
 
     public void setSelectedIndex(int index) {
@@ -144,6 +148,7 @@ public class AppCarouselView extends FrameLayout {
         cardViews.clear();
         cardSurfaceViews.clear();
         cardColors.clear();
+        selectionAccentColors.clear();
         cardGlows.clear();
 
         Context context = getContext();
@@ -167,6 +172,10 @@ public class AppCarouselView extends FrameLayout {
             int[] palette = sampleColorPalette(artwork);
             int sampledColor = averagePaletteColor(palette);
             cardColors.add(sampledColor);
+            // The card keeps using its existing banner-derived palette. The dot samples
+            // the real app icon separately, without tinting or recoloring that icon.
+            Drawable appIcon = item.getIcon() != null ? item.getIcon() : artwork;
+            selectionAccentColors.add(IconAccentSampler.sample(appIcon));
             cardGlows.add(new AdaptiveGlowDrawable(palette, density, 12f, false));
 
             FrameLayout surface = new FrameLayout(context);
