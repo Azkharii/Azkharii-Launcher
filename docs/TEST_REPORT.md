@@ -186,3 +186,24 @@ The automatic update path remains implemented but is not deployable against the 
 - The release workflow computes a monotonically increasing release version, builds a release APK signed with a persistent key, and publishes the APK plus SHA-256 file to GitHub Releases on changes to `main`.
 - No public release currently exists. The release workflow requires four persistent Actions secrets (documented in [docs/RELEASING.md](RELEASING.md)); it fails rather than publishing an unsigned or ephemeral-key build when they are missing. Install a signed release before expecting OTA checks; debug builds use a different application ID and intentionally skip updater checks.
 - The supplied Google Photos short link did not expose image bytes in the available environment; launcher icon/banner remain unchanged rather than being replaced with guessed artwork.
+
+## HUD color transition and Continue Watching marker — 2026-10-27
+
+- **Branch / PR:** `fix/natural-hud-watch-next-loading` · [PR #1](https://github.com/Azkharii/Azkharii-Launcher/pull/1).
+- **Source commit tested:** `7713fd97d47ddf3c92835b97de8740fd992a1db6`.
+- **Hosted CI:** [Run 40472213372](https://github.com/Azkharii/Azkharii-Launcher/actions/runs/40472213372) — repository integrity/quality checks PASS; **7/7 test suites PASS**; debug APK assembly, inspection and artifact upload PASS.
+- **Debug APK artifact:** [cinematic-tv-launcher-debug](https://github.com/Azkharii/Azkharii-Launcher/actions/runs/40472213372/artifacts/12719600775); **3,276,210 bytes**; APK SHA-256 `8c28de02f19f274dbe53b92b1d33dbc56ce00a0a2ceaeb4af5e0f286b09e2c29`. This is a debug build, **not a stable signed release**.
+
+### Changes
+
+- The Continue Watching navigation marker now uses the selected poster's sampled accent instead of the publisher app icon. The existing worker-thread palette sampling and focused-card callback refresh the marker when artwork arrives; no poster artwork or application icon is recolored.
+- The clock and weather text now use bright, wallpaper-hue-derived colors so the adaptation is visible while retaining high luminance for TV-distance readability.
+- HUD accent interpolation runs for 5.2 seconds using the shortest HSV hue path.
+- Fixed cancellation handling: a superseded color animator can no longer apply its stale target at animation end and abruptly override the newest wallpaper color.
+
+### Remaining validation and release blockers
+
+- **Physical TV: NOT TESTED.** CI verifies source integrity, tests and APK compilation, not the actual perceived color transition, the poster-matched marker, or the live Watch Next provider on the Hisense TV.
+- **Stable release: BLOCKED.** The run above only produces a debug APK. The persistent release keystore and four GitHub Actions secrets must be configured before a signed stable APK can be published. Before creating a new key, verify that no previously distributed stable installation requires an existing signing key.
+- **Launcher icon/banner: NOT CHANGED.** The Google Photos share link did not expose the actual image bytes in this environment; preserve existing assets rather than substitute unrelated artwork.
+
