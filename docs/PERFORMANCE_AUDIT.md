@@ -44,7 +44,7 @@ This pattern points to sustained rendering/composition work, not proof of a pack
 ### Implementation in `perf/event-driven-refresh-and-cpu`
 
 - Keep the existing disabled-by-default full-screen wallpaper zoom. Wallpaper rotation and crossfade remain unchanged.
-- Replace repeated app-intent discovery with cached lightweight metadata. The metadata cache is invalidated when Android's `LauncherApps.Callback` reports installed-package or launchability changes; the callback is registered only while the launcher is resumed.
+- Replace repeated app-intent discovery with cached lightweight metadata. The metadata cache is invalidated when Android's `LauncherApps.Callback` reports installed-package or launchability changes; the callback is registered for the Activity lifetime so changes while another app is foreground are not missed; metadata is invalidated on events and UI refresh is debounced until the launcher is resumed.
 - Rank recent apps using the same UsageStats/local-history logic before loading artwork, so the main row materializes artwork only for its visible top five.
 - Build the pinned-app wheel from the pinned package set instead of loading artwork for every installed app and then discarding most results.
 - Update the Wi-Fi indicator from `ConnectivityManager.NetworkCallback` events while foregrounded, with an immediate state snapshot on resume and unregister-on-pause.

@@ -39,7 +39,6 @@ public final class UpdateManager {
     private static final String PROMPT_CODE="update_last_prompted_code";
     private static final String PROMPT_TIME="update_last_prompted_at";
     private static final String PENDING_INSTALL="update_pending_install_path";
-    private static final long INTERVAL=UpdateCheckPolicy.CHECK_INTERVAL_MS;
     private static final long REPROMPT=24L*60L*60L*1000L;
     private static final int MAX_JSON=2*1024*1024;
     private static final long MAX_APK=350L*1024L*1024L;
