@@ -4,7 +4,6 @@ import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.pm.PackageManager;
 import android.content.pm.LauncherApps;
-import android.hardware.display.DisplayManager;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.Bitmap;
@@ -24,7 +23,6 @@ import android.os.Looper;
 import android.os.UserHandle;
 import android.text.format.DateFormat;
 import android.util.Log;
-import android.view.Display;
 import android.view.Window;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -178,22 +176,10 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         }
     };
 
-    private DisplayManager displayManager;
-    private boolean displayListenerRegistered = false;
-    private int lastLoggedDisplayModeId = -1;
-    private float lastLoggedRefreshRate = -1f;
-    private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
-        @Override public void onDisplayAdded(int displayId) {}
-        @Override public void onDisplayRemoved(int displayId) {}
-        @Override public void onDisplayChanged(int displayId) {
-            if (displayId == Display.DEFAULT_DISPLAY) logCurrentDisplayMode("display-change");
-        }
-    };
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-        applyPreferredDisplayMode();
 
         launcherConfig = LauncherConfig.loadFromResources(this);
         discoveryManager = new AppDiscoveryManager(this);
@@ -345,71 +331,6 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
                     .putString(KEY_LAST_APP_PACKAGE, selected.getPackageName()).apply();
         }
         refreshPinnedAppsWheel();
-    }
-
-    /**
-     * Request a 60 FPS presentation target without changing resolution or TV settings. Android and
-     * vendor policy may ignore the display/frame-rate hints; the real frame rate must be measured.
-     */
-    private void applyPreferredDisplayMode() {
-        if (android.os.Build.VERSION.SDK_INT < 23 || getWindow()==null) return;
-        try {
-            Display display=getWindowManager().getDefaultDisplay();
-            Display.Mode current=display.getMode();
-            Display.Mode[] supported=display.getSupportedModes();
-            if(current==null || supported==null || supported.length==0) return;
-            DisplayModeSelector.Mode[] candidates=new DisplayModeSelector.Mode[supported.length];
-            for(int i=0;i<supported.length;i++) {
-                Display.Mode mode=supported[i];
-                candidates[i]=new DisplayModeSelector.Mode(mode.getModeId(),mode.getPhysicalWidth(),mode.getPhysicalHeight(),mode.getRefreshRate());
-                Log.i(TAG,String.format(Locale.US,"Supported display mode: %dx%d @ %.2f Hz (id=%d)",
-                        mode.getPhysicalWidth(),mode.getPhysicalHeight(),mode.getRefreshRate(),mode.getModeId()));
-            }
-            int preferredId=DisplayModeSelector.choosePreferredModeId(current.getModeId(),current.getPhysicalWidth(),
-                    current.getPhysicalHeight(),current.getRefreshRate(),60f,candidates);
-            android.view.WindowManager.LayoutParams attrs=getWindow().getAttributes();
-            if(preferredId!=current.getModeId()) {
-                attrs.preferredDisplayModeId=preferredId;
-                attrs.preferredRefreshRate=0f;
-            } else {
-                // Prefer 60 Hz even when the panel is currently at 120 Hz. If 60 Hz is not
-                // supported, Android/vendor policy keeps a compatible mode instead.
-                attrs.preferredDisplayModeId=0;
-                attrs.preferredRefreshRate=60f;
-            }
-            getWindow().setAttributes(attrs);
-            logCurrentDisplayMode("after-request");
-        } catch(Exception e) {
-            Log.w(TAG,"Could not negotiate preferred display refresh mode",e);
-        }
-    }
-
-    private void registerDisplayModeListener() {
-        if(displayListenerRegistered) return;
-        if(displayManager==null) displayManager=(DisplayManager)getSystemService(Context.DISPLAY_SERVICE);
-        if(displayManager==null) return;
-        displayManager.registerDisplayListener(displayListener,new Handler(Looper.getMainLooper()));
-        displayListenerRegistered=true;
-    }
-
-    private void unregisterDisplayModeListener() {
-        if(!displayListenerRegistered || displayManager==null) return;
-        try {displayManager.unregisterDisplayListener(displayListener);} catch(Exception ignored) {}
-        displayListenerRegistered=false;
-    }
-
-    private void logCurrentDisplayMode(String reason) {
-        try {
-            Display.Mode mode=getWindowManager().getDefaultDisplay().getMode();
-            if(mode==null) return;
-            float rate=mode.getRefreshRate();
-            if(mode.getModeId()!=lastLoggedDisplayModeId || Math.abs(rate-lastLoggedRefreshRate)>0.5f) {
-                lastLoggedDisplayModeId=mode.getModeId();
-                lastLoggedRefreshRate=rate;
-                Log.i(TAG,String.format(Locale.US,"Active display mode (%s): %dx%d @ %.2f Hz; refresh != measured FPS.",
-                        reason,mode.getPhysicalWidth(),mode.getPhysicalHeight(),rate));
-            }
-        } catch(Exception e) {Log.d(TAG,"Unable to read active display mode",e);}
     }
 
     private void schedulePackageRefresh() {
@@ -780,18 +701,14 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         pinnedAppsWheel.addView(incoming, new FrameLayout.LayoutParams(dp(48),dp(48)));
         placePinnedWheelIcon(incoming,incomingAngle);
         List<View> moving = new ArrayList<>(pinnedWheelSlotViews);
-        List<Float> startingAngles = new ArrayList<>();
-        for (int i=0;i<count;i++) {
-            moving.get(i).setClickable(false);
-            startingAngles.add(pinnedWheelAngle(i,count));
-        }
+        for (View icon : moving) icon.setClickable(false);
         pinnedWheelAnimating = true;
         ValueAnimator animator = ValueAnimator.ofFloat(0f,1f);
         animator.setDuration(280);
         animator.setInterpolator(new DecelerateInterpolator());
         animator.addUpdateListener(animation -> {
             float t=(float)animation.getAnimatedValue();
-            for(int i=0;i<moving.size();i++) placePinnedWheelIcon(moving.get(i),startingAngles.get(i)-delta*step*t);
+            for(int i=0;i<moving.size();i++) placePinnedWheelIcon(moving.get(i),pinnedWheelAngle(i,count)-delta*step*t);
             placePinnedWheelIcon(incoming,incomingAngle+(targetAngle-incomingAngle)*t);
             View focused=getCurrentFocus();
             if(focused!=null && isDescendantOf(focused,pinnedAppsWheel)) updateFocusPositionDot(focused);
@@ -1604,7 +1521,6 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     protected void onResume() {
         super.onResume();
         activityResumed = true;
-        registerDisplayModeListener();
         if (backgroundManager != null) {
             backgroundManager.onResume();
         }
@@ -1620,7 +1536,6 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         loadApps();
         refreshContinueWatchingWheel();
         if (weatherWidgetManager != null) weatherWidgetManager.refreshIfAllowed();
-        applyPreferredDisplayMode();
         if (weatherWidgetManager != null && weatherWidgetManager.requestInitialPermissionIfNeeded()) {
             return;
         }
@@ -1722,7 +1637,6 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         lifecycleHandler.removeCallbacks(packageRefreshRunnable);
         if (controlManager != null) controlManager.onPause();
         if (updateManager != null) updateManager.onPause();
-        unregisterDisplayModeListener();
         // Stop wallpaper, weather, and adaptive-HUD work while another app is foreground.
         if (weatherWidgetManager != null) weatherWidgetManager.onPause();
         if (continueWatchingWheel != null) continueWatchingWheel.pauseBackgroundWork();

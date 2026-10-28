@@ -16,7 +16,6 @@ javac -d "$BUILD_DIR" \
     launcher/app/src/main/java/com/cinematic/tvlauncher/config/LauncherConfig.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/background/RotationQueue.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/carousel/CarouselLayoutCalculator.java \
-    launcher/app/src/main/java/com/cinematic/tvlauncher/DisplayModeSelector.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/navigation/PinnedWheelSlotOrder.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/WatchNextEntryPolicy.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/UpdateVersionPolicy.java \
@@ -24,7 +23,6 @@ javac -d "$BUILD_DIR" \
     launcher/app/src/test/java/com/cinematic/tvlauncher/UpdateVersionPolicyTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/UpdateCheckPolicyTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/WatchNextEntryPolicyTest.java \
-    launcher/app/src/test/java/com/cinematic/tvlauncher/DisplayModeSelectorTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/PinnedWheelSlotOrderTest.java \
     launcher/app/src/test/java/android/content/Context.java \
     launcher/app/src/test/java/android/content/res/Resources.java \
