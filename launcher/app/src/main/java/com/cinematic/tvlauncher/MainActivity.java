@@ -95,6 +95,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private final float[] hudAnimationTargetHsv = new float[3];
     private final float[] hudAnimationFrameHsv = new float[3];
     private final float[] hudAccentHsv = new float[3];
+    private final float[] hudClockTextHsv = new float[3];
+    private final float[] hudWeatherTextHsv = new float[3];
     private final int[] hudGlassColors = new int[3];
     private final int[] lastAppliedHudGlassColors = {
             Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE
@@ -1092,12 +1094,14 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         int b = Color.blue(accent);
         Color.colorToHSV(accent, hudAccentHsv);
         // Keep HUD text bright for TV-distance readability while following the wallpaper hue.
-        int clockTextColor = Color.HSVToColor(new float[] {
-                hudAccentHsv[0], Math.max(0.12f, Math.min(0.30f, hudAccentHsv[1] * 0.62f)), 0.98f
-        });
-        int weatherTextColor = Color.HSVToColor(new float[] {
-                hudAccentHsv[0], Math.max(0.18f, Math.min(0.40f, hudAccentHsv[1] * 0.90f)), 0.96f
-        });
+        hudClockTextHsv[0] = hudAccentHsv[0];
+        hudClockTextHsv[1] = Math.max(0.12f, Math.min(0.30f, hudAccentHsv[1] * 0.62f));
+        hudClockTextHsv[2] = 0.98f;
+        int clockTextColor = Color.HSVToColor(hudClockTextHsv);
+        hudWeatherTextHsv[0] = hudAccentHsv[0];
+        hudWeatherTextHsv[1] = Math.max(0.18f, Math.min(0.40f, hudAccentHsv[1] * 0.90f));
+        hudWeatherTextHsv[2] = 0.96f;
+        int weatherTextColor = Color.HSVToColor(hudWeatherTextHsv);
 
         if (focusPositionDotBackground != null && !focusPositionUsesSelectionAccent) {
             android.content.res.ColorStateList existingColor = focusPositionDotBackground.getColor();
