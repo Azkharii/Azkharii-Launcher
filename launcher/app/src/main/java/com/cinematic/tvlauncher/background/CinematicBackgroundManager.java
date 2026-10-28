@@ -56,7 +56,9 @@ public class CinematicBackgroundManager {
             if (!isVisible || destroyed || queue.isEmpty()) return;
             rotateToNext();
             // Keep rotation event-driven: do not wake the main looper when no wallpapers exist.
-            if (isVisible && !destroyed && !queue.isEmpty()) {
+            // With one photo, displaying it once is enough; re-decoding and crossfading
+            // the same bitmap every 10 seconds produces no visual change.
+            if (isVisible && !destroyed && queue.size() > 1) {
                 mainHandler.postDelayed(this, config.getRotationIntervalSec() * 1000L);
             }
         }
