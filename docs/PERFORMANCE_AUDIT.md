@@ -99,6 +99,7 @@ This pattern points to sustained rendering/composition work, not proof of a pack
 - Made wallpaper rotation event-driven: do not schedule a timer when no local wallpapers exist, do not force an immediate crossfade on every resume, and do not repeat the timer after displaying a single available photo. Rotation and the 600 ms crossfade remain available when multiple photos exist.
 - Shortened the wallpaper-adaptive HUD color transition from 1.8 s to 0.9 s, limited color updates to at most one every 50 ms, and applied visually negligible RGB changes directly rather than starting an animation.
 - Reused the adaptive glow's normalized perimeter palette and gradient when the palette has not changed. Repeated assignments of the same alpha or color filter no longer invalidate the drawable.
+- Replaced persistent idle worker factories in HUD color sampling, wallpaper decode, weather fetch, OTA checks, and Watch Next data/artwork loading with equivalent executors that expire idle workers after 15 seconds. Watch Next artwork retains its three-way parallel execution; task cancellation and executor shutdown paths remain unchanged.
 - Updated the configuration test to assert that continuous wallpaper motion is disabled by default.
 
 ### What was deliberately not removed
