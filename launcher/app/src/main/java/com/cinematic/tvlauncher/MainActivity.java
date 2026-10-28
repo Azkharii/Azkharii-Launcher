@@ -89,6 +89,20 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private ValueAnimator hudColorAnimator;
     private GradientDrawable weatherGlassBackground;
     private int currentHudAccent = Color.rgb(168, 232, 255);
+    private boolean hudAccentApplied;
+    private long lastHudAccentFrameAtMs;
+    private final float[] hudAnimationStartHsv = new float[3];
+    private final float[] hudAnimationTargetHsv = new float[3];
+    private final float[] hudAnimationFrameHsv = new float[3];
+    private final float[] hudAccentHsv = new float[3];
+    private final int[] hudGlassColors = new int[3];
+    private final int[] lastAppliedHudGlassColors = {
+            Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE
+    };
+    private int lastClockShadowColor = Integer.MIN_VALUE;
+    private int lastDateShadowColor = Integer.MIN_VALUE;
+    private int lastWeatherShadowColor = Integer.MIN_VALUE;
+    private int lastWeatherGlassStrokeColor = Integer.MIN_VALUE;
     private UpdateManager updateManager;
     private WeatherWidgetManager weatherWidgetManager;
     private TextView tvFocusedAppLabel;
@@ -1011,21 +1025,46 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     }
 
     /** Smoothly blend wallpaper-derived accents; a newer wallpaper continues from the current tint. */
+    /**
+     * Smoothly blend wallpaper-derived accents with bounded redraw work.
+     * HSV endpoints are computed once and UI properties update at most 30 times/second.
+     */
     private void animateAdaptiveHudAccent(int targetAccent) {
         if (hudColorAnimator != null) {
             hudColorAnimator.cancel();
             hudColorAnimator = null;
         }
         final int startAccent = currentHudAccent;
+        if (startAccent == targetAccent) {
+            applyAdaptiveHudAccent(targetAccent);
+            return;
+        }
+
+        Color.colorToHSV(startAccent, hudAnimationStartHsv);
+        Color.colorToHSV(targetAccent, hudAnimationTargetHsv);
+        float hueDelta = hudAnimationTargetHsv[0] - hudAnimationStartHsv[0];
+        if (hueDelta > 180f) hueDelta -= 360f;
+        else if (hueDelta < -180f) hueDelta += 360f;
+        final float targetHueDelta = hueDelta;
+        final float targetSaturationDelta = hudAnimationTargetHsv[1] - hudAnimationStartHsv[1];
+        final float targetValueDelta = hudAnimationTargetHsv[2] - hudAnimationStartHsv[2];
+        lastHudAccentFrameAtMs = 0L;
+
         ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
         hudColorAnimator = animator;
-        // Ease into the new, deliberately muted wallpaper accent instead of flashing to neon.
-        animator.setDuration(5200L);
+        // Preserve the wallpaper-aware fade while avoiding 5 seconds of continuous HUD invalidation.
+        animator.setDuration(1800L);
         animator.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
         animator.addUpdateListener(animation -> {
             float fraction = (float) animation.getAnimatedValue();
-            int blended = interpolateHudAccent(startAccent, targetAccent, fraction);
-            applyAdaptiveHudAccent(blended);
+            long now = android.os.SystemClock.uptimeMillis();
+            if (fraction < 1f && now - lastHudAccentFrameAtMs < 33L) return;
+            lastHudAccentFrameAtMs = now;
+
+            hudAnimationFrameHsv[0] = (hudAnimationStartHsv[0] + fraction * targetHueDelta + 360f) % 360f;
+            hudAnimationFrameHsv[1] = hudAnimationStartHsv[1] + fraction * targetSaturationDelta;
+            hudAnimationFrameHsv[2] = hudAnimationStartHsv[2] + fraction * targetValueDelta;
+            applyAdaptiveHudAccent(Color.HSVToColor(hudAnimationFrameHsv));
         });
         animator.addListener(new android.animation.AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) {
@@ -1042,71 +1081,74 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         animator.start();
     }
 
-    /** Interpolates hue along the shorter path; RGB interpolation can briefly muddy saturated neon accents. */
-    private int interpolateHudAccent(int startColor, int endColor, float fraction) {
-        float[] start = new float[3];
-        float[] end = new float[3];
-        Color.colorToHSV(startColor, start);
-        Color.colorToHSV(endColor, end);
-
-        float deltaHue = end[0] - start[0];
-        if (deltaHue > 180f) deltaHue -= 360f;
-        else if (deltaHue < -180f) deltaHue += 360f;
-
-        float[] blended = new float[3];
-        blended[0] = (start[0] + fraction * deltaHue + 360f) % 360f;
-        blended[1] = start[1] + (end[1] - start[1]) * fraction;
-        blended[2] = start[2] + (end[2] - start[2]) * fraction;
-        return Color.HSVToColor(blended);
-    }
-
     /** Mutates the existing glass drawable so color transitions stay allocation-light. */
+    /** Update adaptive HUD properties only when their rendered values actually change. */
     private void applyAdaptiveHudAccent(int accent) {
+        if (hudAccentApplied && accent == currentHudAccent) return;
         currentHudAccent = accent;
+        hudAccentApplied = true;
         int r = Color.red(accent);
         int g = Color.green(accent);
         int b = Color.blue(accent);
-        float[] accentHsv = new float[3];
-        Color.colorToHSV(accent, accentHsv);
-        // Keep the HUD text bright for TV-distance readability while making its hue
-        // visibly follow the wallpaper instead of leaving the clock almost pure white.
+        Color.colorToHSV(accent, hudAccentHsv);
+        // Keep HUD text bright for TV-distance readability while following the wallpaper hue.
         int clockTextColor = Color.HSVToColor(new float[] {
-                accentHsv[0], Math.max(0.12f, Math.min(0.30f, accentHsv[1] * 0.62f)), 0.98f
+                hudAccentHsv[0], Math.max(0.12f, Math.min(0.30f, hudAccentHsv[1] * 0.62f)), 0.98f
         });
         int weatherTextColor = Color.HSVToColor(new float[] {
-                accentHsv[0], Math.max(0.18f, Math.min(0.40f, accentHsv[1] * 0.90f)), 0.96f
+                hudAccentHsv[0], Math.max(0.18f, Math.min(0.40f, hudAccentHsv[1] * 0.90f)), 0.96f
         });
+
         if (focusPositionDotBackground != null && !focusPositionUsesSelectionAccent) {
-            focusPositionDotBackground.setColor(accent);
-            focusPositionDotBackground.setStroke(Math.max(1, dp(1)), 0xCCFFFFFF);
-            focusPositionDot.invalidate();
+            android.content.res.ColorStateList existingColor = focusPositionDotBackground.getColor();
+            if (existingColor == null || existingColor.getDefaultColor() != accent) {
+                focusPositionDotBackground.setColor(accent);
+                focusPositionDot.invalidate();
+            }
         }
         if (tvClock != null) {
-            tvClock.setTextColor(clockTextColor);
-            tvClock.setShadowLayer(dp(6), 0f, 0f, Color.argb(118, r, g, b));
+            if (tvClock.getCurrentTextColor() != clockTextColor) tvClock.setTextColor(clockTextColor);
+            int shadowColor = Color.argb(118, r, g, b);
+            if (lastClockShadowColor != shadowColor) {
+                tvClock.setShadowLayer(dp(6), 0f, 0f, shadowColor);
+                lastClockShadowColor = shadowColor;
+            }
         }
         if (tvDate != null) {
-            tvDate.setTextColor(accent);
-            tvDate.setShadowLayer(dp(3), 0f, 0f, Color.argb(92, r, g, b));
+            if (tvDate.getCurrentTextColor() != accent) tvDate.setTextColor(accent);
+            int shadowColor = Color.argb(92, r, g, b);
+            if (lastDateShadowColor != shadowColor) {
+                tvDate.setShadowLayer(dp(3), 0f, 0f, shadowColor);
+                lastDateShadowColor = shadowColor;
+            }
         }
         if (tvWeather != null) {
-            // Use the same smoothly interpolated wallpaper hue, with a bright text value.
-            tvWeather.setTextColor(weatherTextColor);
-            int[] glassColors = {
-                    Color.argb(24, r, g, b),
-                    Color.argb(88, 8, 14, 26),
-                    Color.argb(36, r, g, b)
-            };
+            if (tvWeather.getCurrentTextColor() != weatherTextColor) tvWeather.setTextColor(weatherTextColor);
+            hudGlassColors[0] = Color.argb(24, r, g, b);
+            hudGlassColors[1] = Color.argb(88, 8, 14, 26);
+            hudGlassColors[2] = Color.argb(36, r, g, b);
             if (weatherGlassBackground == null) {
                 weatherGlassBackground = new GradientDrawable(
-                        GradientDrawable.Orientation.TOP_BOTTOM, glassColors);
+                        GradientDrawable.Orientation.TOP_BOTTOM, hudGlassColors.clone());
                 weatherGlassBackground.setCornerRadius(dp(14));
                 tvWeather.setBackground(weatherGlassBackground);
-            } else {
-                weatherGlassBackground.setColors(glassColors);
+                System.arraycopy(hudGlassColors, 0, lastAppliedHudGlassColors, 0, hudGlassColors.length);
+            } else if (lastAppliedHudGlassColors[0] != hudGlassColors[0]
+                    || lastAppliedHudGlassColors[1] != hudGlassColors[1]
+                    || lastAppliedHudGlassColors[2] != hudGlassColors[2]) {
+                weatherGlassBackground.setColors(hudGlassColors);
+                System.arraycopy(hudGlassColors, 0, lastAppliedHudGlassColors, 0, hudGlassColors.length);
             }
-            weatherGlassBackground.setStroke(Math.max(1, dp(1)), Color.argb(92, r, g, b));
-            tvWeather.setShadowLayer(dp(2), 0f, 0f, Color.argb(72, r, g, b));
+            int strokeColor = Color.argb(92, r, g, b);
+            if (lastWeatherGlassStrokeColor != strokeColor) {
+                weatherGlassBackground.setStroke(Math.max(1, dp(1)), strokeColor);
+                lastWeatherGlassStrokeColor = strokeColor;
+            }
+            int shadowColor = Color.argb(72, r, g, b);
+            if (lastWeatherShadowColor != shadowColor) {
+                tvWeather.setShadowLayer(dp(2), 0f, 0f, shadowColor);
+                lastWeatherShadowColor = shadowColor;
+            }
         }
     }
 
