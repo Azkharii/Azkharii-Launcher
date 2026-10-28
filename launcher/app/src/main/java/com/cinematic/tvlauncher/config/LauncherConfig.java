@@ -12,7 +12,7 @@ public class LauncherConfig {
 
     public static final int DEFAULT_ROTATION_INTERVAL_SEC = 10;
     public static final int DEFAULT_CROSSFADE_DURATION_MS = 600;
-    public static final boolean DEFAULT_MOTION_ENABLED = true;
+    public static final boolean DEFAULT_MOTION_ENABLED = false;
     public static final int DEFAULT_MOTION_DURATION_SEC = 40;
     private int rotationIntervalSec = DEFAULT_ROTATION_INTERVAL_SEC;
     private int crossfadeDurationMs = DEFAULT_CROSSFADE_DURATION_MS;
