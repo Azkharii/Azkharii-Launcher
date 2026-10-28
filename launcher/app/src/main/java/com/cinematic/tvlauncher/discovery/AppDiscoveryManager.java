@@ -241,11 +241,13 @@ public class AppDiscoveryManager {
         try {
             ActivityInfo info = packageManager.getActivityInfo(
                     new ComponentName(item.packageName, item.activityName), 0);
-            Drawable icon = info.loadIcon(packageManager);
+            Drawable icon = null;
+            try { icon = info.loadIcon(packageManager); } catch (Exception ignored) {}
             Drawable banner = null;
             if (item.isLeanback) {
                 try { banner = info.loadBanner(packageManager); } catch (Exception ignored) {}
             }
+            // Retain a valid package entry even when its icon cannot be loaded, as before.
             return new AppItem(item.packageName, item.activityName, item.label, icon, banner, item.isLeanback);
         } catch (Exception e) {
             // A package may have been removed between metadata lookup and artwork loading.
