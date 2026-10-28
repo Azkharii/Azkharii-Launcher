@@ -18,7 +18,7 @@ public final class UpdateVersionPolicyTest {
         check(UpdateVersionPolicy.isNewer(1000000005L, 1000000004L), "accepts newer monotonic version code");
         check(!UpdateVersionPolicy.isNewer(1000000004L, 1000000004L), "does not reinstall same version");
         check(!UpdateVersionPolicy.isNewer(1000000003L, 1000000004L), "never downgrades");
-        System.out.println("  [PASS] UpdateVersionPolicyTest (15 assertions)");
+        System.out.println("  [PASS] UpdateVersionPolicyTest (16 assertions)");
     }
     private static void check(boolean condition, String message) {
         if (!condition) throw new AssertionError(message);
