@@ -83,3 +83,30 @@ This pattern points to sustained rendering/composition work, not proof of a pack
 
 - La rama fuente y las pruebas se están preparando para CI; aún no hay resultado de validación final.
 - La comparación de CPU/RAM en el televisor después de instalar una versión nueva sigue pendiente. No debe darse por corregido el pico hasta medir la misma escena en reposo después de la actualización.
+
+
+## Deep idle rendering pass — 2026-10-28
+
+### Latest thread-level sample supplied by the user
+
+- The first snapshot showed `RenderThread` at 77.4%, `mali-cmar-backe` at 29.0%, and the two HWUI workers at 6.4% and 3.2%, while the app's main thread reported 0.0%.
+- The next snapshot showed the launcher threads sleeping; later snapshots showed only brief low activity. Process RES moved from about 272 MiB to 264 MiB in the captured interval.
+- This is evidence of a short graphics-work burst, not sustained CPU use across all five seconds and not proof of a memory leak. Thread-level RES is repeated for the same process and must not be summed.
+
+### Changes made on `perf/deep-idle-render-optimization`
+
+- Set `LauncherConfig.DEFAULT_MOTION_ENABLED` to `false`, matching `config.xml`. The fallback path can no longer accidentally enable the infinite wallpaper zoom if resource loading fails.
+- Made wallpaper rotation event-driven: do not schedule a timer when no local wallpapers exist, do not force an immediate crossfade on every resume, and do not repeat the timer after displaying a single available photo. Rotation and the 600 ms crossfade remain available when multiple photos exist.
+- Shortened the wallpaper-adaptive HUD color transition from 1.8 s to 0.9 s, limited color updates to at most one every 50 ms, and applied visually negligible RGB changes directly rather than starting an animation.
+- Reused the adaptive glow's normalized perimeter palette and gradient when the palette has not changed. Repeated assignments of the same alpha or color filter no longer invalidate the drawable.
+- Replaced persistent idle worker factories in HUD color sampling, wallpaper decode, weather fetch, OTA checks, and Watch Next data/artwork loading with equivalent executors that expire idle workers after 15 seconds. Watch Next artwork retains its three-way parallel execution; task cancellation and executor shutdown paths remain unchanged.
+- Updated the configuration test to assert that continuous wallpaper motion is disabled by default.
+
+### What was deliberately not removed
+
+No UI component, navigation behavior, Watch Next feature, wallpaper crossfade, or APK resource was deleted. The source evidence so far supports eliminating redundant work, but does not prove that any additional drawable, layout, or subsystem is dead code. Deleting such assets without a reference audit would offer little runtime CPU benefit and could cause a visual regression.
+
+### Validation status
+
+- Source edits are committed on the dedicated branch; automated tests, integrity checks, and APK build must pass in GitHub Actions before considering the changes integration-ready.
+- A post-change CPU/RAM capture on the Hisense TV is still required. The optimization is not marked as physically verified until the same idle scene is measured after installing the resulting APK.

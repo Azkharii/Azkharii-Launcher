@@ -32,7 +32,9 @@ import com.cinematic.tvlauncher.navigation.PinnedWheelSlotOrder;
 import com.cinematic.tvlauncher.WatchNextEntryPolicy;
 import com.cinematic.tvlauncher.WatchNextRepository;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Future;
 import java.util.HashSet;
 import java.util.Set;
@@ -61,8 +63,14 @@ public final class ContinueWatchingWheelView extends FrameLayout {
 
     private static final int MAX_VISIBLE_ITEMS = 5;
     private static final String TAG = "ContinueWatching";
-    private static final ExecutorService DATA_EXECUTOR = Executors.newSingleThreadExecutor();
-    private static final ExecutorService ARTWORK_EXECUTOR = Executors.newFixedThreadPool(3);
+    private static final ExecutorService DATA_EXECUTOR =
+            new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+    private static final ThreadPoolExecutor ARTWORK_EXECUTOR = new ThreadPoolExecutor(
+            3, 3, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+    static {
+        // Preserve the three-way artwork parallelism, but let idle workers release their stacks.
+        ARTWORK_EXECUTOR.allowCoreThreadTimeOut(true);
+    }
     private static final int MAX_ARTWORK_SOURCE_BYTES = 6 * 1024 * 1024;
     // Keep recently used poster bitmaps in memory so D-pad navigation never re-downloads/re-decodes them.
     private static final LruCache<String, Bitmap> ARTWORK_CACHE = new LruCache<String, Bitmap>(12 * 1024) {

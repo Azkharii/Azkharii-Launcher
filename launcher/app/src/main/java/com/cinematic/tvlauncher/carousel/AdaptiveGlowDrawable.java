@@ -28,6 +28,7 @@ public final class AdaptiveGlowDrawable extends Drawable {
     private final float density;
     private final float cornerRadius;
     private boolean focused;
+    private final int[] perimeterColors = new int[8];
     private int[] clockwiseColors;
     private SweepGradient gradient;
     private int alpha = 255;
@@ -54,17 +55,25 @@ public final class AdaptiveGlowDrawable extends Drawable {
     }
 
     /** Replaces the sampled palette after artwork finishes loading; safe outside draw(). */
-    public void setPerimeterColors(int[] perimeterColors) {
-        int[] supplied = perimeterColors == null ? new int[0] : perimeterColors;
-        int[] perimeter = new int[8];
-        for (int i = 0; i < perimeter.length; i++) {
-            perimeter[i] = supplied.length == 0
-                    ? DEFAULT_ACCENT : supplied[Math.min(i, supplied.length - 1)];
+    public void setPerimeterColors(int[] suppliedColors) {
+        int length = suppliedColors == null ? 0 : suppliedColors.length;
+        boolean changed = false;
+        for (int i = 0; i < perimeterColors.length; i++) {
+            int color = length == 0
+                    ? DEFAULT_ACCENT : suppliedColors[Math.min(i, length - 1)];
+            if (perimeterColors[i] != color) {
+                perimeterColors[i] = color;
+                changed = true;
+            }
         }
+        // Reuse the existing shader and arrays when artwork publishes an unchanged palette.
+        if (!changed && clockwiseColors != null) return;
+
         // SweepGradient starts at the right edge and proceeds clockwise on Android's canvas.
         clockwiseColors = new int[] {
-                perimeter[3], perimeter[4], perimeter[5], perimeter[6],
-                perimeter[7], perimeter[0], perimeter[1], perimeter[2], perimeter[3]
+                perimeterColors[3], perimeterColors[4], perimeterColors[5], perimeterColors[6],
+                perimeterColors[7], perimeterColors[0], perimeterColors[1], perimeterColors[2],
+                perimeterColors[3]
         };
         rebuildGradient();
         invalidateSelf();
@@ -116,12 +125,15 @@ public final class AdaptiveGlowDrawable extends Drawable {
 
     @Override
     public void setAlpha(int alpha) {
-        this.alpha = Math.max(0, Math.min(255, alpha));
+        int clamped = Math.max(0, Math.min(255, alpha));
+        if (this.alpha == clamped) return;
+        this.alpha = clamped;
         invalidateSelf();
     }
 
     @Override
     public void setColorFilter(ColorFilter colorFilter) {
+        if (paint.getColorFilter() == colorFilter) return;
         paint.setColorFilter(colorFilter);
         invalidateSelf();
     }

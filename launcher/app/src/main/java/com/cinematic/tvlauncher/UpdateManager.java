@@ -26,7 +26,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /** Checks published public releases and hands validated APKs to Android's package installer. */
 public final class UpdateManager {
@@ -47,7 +49,8 @@ public final class UpdateManager {
 
     private final Activity activity;
     private final SharedPreferences prefs;
-    private final ExecutorService executor=Executors.newSingleThreadExecutor();
+    private final ExecutorService executor =
+            new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
     private final Handler handler=new Handler(Looper.getMainLooper());
     private volatile boolean closed,resumed,checking;
 

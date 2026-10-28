@@ -29,7 +29,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Future;
 
 /**
@@ -50,7 +52,8 @@ public final class WeatherWidgetManager {
     private final Activity activity;
     private final TextView label;
     private final SharedPreferences preferences;
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService executor =
+            new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private boolean locationRequestInProgress;
     private LocationListener pendingLocationListener;
