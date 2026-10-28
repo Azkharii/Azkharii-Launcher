@@ -77,7 +77,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION_CODE=$((1000000000 + GITHUB_RUN_NUMBER))
-          VERSION_NAME="1.0.${VERSION_CODE}"
+          VERSION_NAME="1.0.${GITHUB_RUN_NUMBER}"
           echo "code=${VERSION_CODE}" >> "$GITHUB_OUTPUT"
           echo "name=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
           echo "Public release version: ${VERSION_NAME} (versionCode ${VERSION_CODE})" >> "$GITHUB_STEP_SUMMARY"
@@ -121,8 +121,8 @@ jobs:
           set -euo pipefail
           VERSION_CODE="${{ steps.version.outputs.code }}"
           VERSION_NAME="${{ steps.version.outputs.name }}"
-          TAG="v${VERSION_NAME}"
-          gh release create "$TAG" cinematic-tv-launcher-release.apk cinematic-tv-launcher-release.apk.sha256 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Cinematic TV Launcher ${VERSION_NAME}" --notes "Automated signed release from commit $GITHUB_SHA. Android versionName: ${VERSION_NAME}. Android versionCode: ${VERSION_CODE}."
+          TAG="v${VERSION_NAME}+${VERSION_CODE}"
+          gh release create "$TAG" cinematic-tv-launcher-release.apk cinematic-tv-launcher-release.apk.sha256 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Cinematic TV Launcher ${VERSION_NAME}" --notes "Actualización estable de Cinematic TV Launcher."
 
       - name: Explain private-repository limitation
         if: steps.signing.outputs.available == 'true' && github.event.repository.private == true
