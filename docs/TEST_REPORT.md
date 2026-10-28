@@ -125,7 +125,7 @@ The automatic update path remains implemented but is not deployable against the 
 - Recent apps and the embedded full-app library use the same contour implementation. Each card stores **one** adaptive glow drawable that switches between its subdued resting border and its brighter selected state, instead of two mostly duplicated drawables.
 - Continue Watching poster, gloss, progress bar, and title are inset from the surface so they do not cover the illuminated edge. Artwork has a rounded mask; palette sampling and decoding stay on the worker thread and palette results are cached.
 - The recent-app carousel allocates animation buffers for only the visible window and updates only those five/seven cards in each animation frame. The focus marker no longer recomputes screen geometry every frame. Hardware layers for cards still in the viewport are reused between adjacent D-pad moves.
-- The debug build previously started a five-second `FrameMetrics` probe on every resume, copied per-frame metrics, and created a dedicated handler thread. That automatic probe was removed to avoid adding diagnostic overhead to the experience it measured. The window still requests a 60 Hz preference where supported; that is not a guarantee of 60 rendered FPS.
+- The debug build previously started a five-second `FrameMetrics` probe on every resume, copied per-frame metrics, and created a dedicated handler thread. That automatic probe was removed to avoid adding diagnostic overhead to the experience it measured. The app no longer requests a preferred display refresh rate; Android and the TV control the display mode, and refresh rate is distinct from measured rendered FPS.
 
 ### Dead-code, resource, and dependency cleanup
 
