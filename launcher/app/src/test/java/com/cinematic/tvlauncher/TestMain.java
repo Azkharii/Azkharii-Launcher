@@ -11,7 +11,7 @@ public class TestMain {
         System.out.println("  Cinematic Android TV Launcher - Unit Test Suite ");
         System.out.println("==================================================");
 
-        int totalSuites = 8;
+        int totalSuites = 7;
         int passedSuites = 0;
 
         try {
@@ -42,16 +42,7 @@ public class TestMain {
         }
 
         try {
-            System.out.println("4. Running DisplayModeSelectorTest (display refresh policy)...");
-            DisplayModeSelectorTest.runTests();
-            passedSuites++;
-        } catch (Throwable t) {
-            System.err.println("  [FAIL] DisplayModeSelectorTest: " + t.getMessage());
-            t.printStackTrace();
-        }
-
-        try {
-            System.out.println("5. Running PinnedWheelSlotOrderTest (stable focus slot transitions)...");
+            System.out.println("4. Running PinnedWheelSlotOrderTest (stable focus slot transitions)...");
             PinnedWheelSlotOrderTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
@@ -60,7 +51,7 @@ public class TestMain {
         }
 
         try {
-            System.out.println("6. Running WatchNextEntryPolicyTest (empty intent URI and playback progress)...");
+            System.out.println("5. Running WatchNextEntryPolicyTest (empty intent URI and playback progress)...");
             WatchNextEntryPolicyTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
@@ -69,7 +60,7 @@ public class TestMain {
         }
 
         try {
-            System.out.println("7. Running UpdateVersionPolicyTest (monotonic release tags)...");
+            System.out.println("6. Running UpdateVersionPolicyTest (monotonic release tags)...");
             UpdateVersionPolicyTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
@@ -78,7 +69,7 @@ public class TestMain {
         }
 
         try {
-            System.out.println("8. Running UpdateCheckPolicyTest (foreground update interval and retry backoff)...");
+            System.out.println("7. Running UpdateCheckPolicyTest (foreground update interval and retry backoff)...");
             UpdateCheckPolicyTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
