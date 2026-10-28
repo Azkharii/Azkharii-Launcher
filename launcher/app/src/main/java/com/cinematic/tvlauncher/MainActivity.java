@@ -1083,7 +1083,6 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         animator.start();
     }
 
-    /** Mutates the existing glass drawable so color transitions stay allocation-light. */
     /** Update adaptive HUD properties only when their rendered values actually change. */
     private void applyAdaptiveHudAccent(int accent) {
         if (hudAccentApplied && accent == currentHudAccent) return;
