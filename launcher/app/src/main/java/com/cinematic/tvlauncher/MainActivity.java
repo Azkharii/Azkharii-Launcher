@@ -57,7 +57,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.ArrayList;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import android.graphics.Color;
 
 /**
@@ -74,7 +76,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private static final String KEY_TV_LISTINGS_PERMISSION_REQUESTED = "tv_listings_permission_requested";
     private static final String PERMISSION_READ_TV_LISTINGS = "android.permission.READ_TV_LISTINGS";
     private static final int REQUEST_TV_LISTINGS_PERMISSION = 4701;
-    private static final ExecutorService HUD_COLOR_EXECUTOR = Executors.newSingleThreadExecutor();
+    private static final ExecutorService HUD_COLOR_EXECUTOR =
+            new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
 
     private CinematicBackgroundManager backgroundManager;
     private AppDiscoveryManager discoveryManager;
