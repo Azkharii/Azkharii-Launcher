@@ -3,14 +3,14 @@
 ## Flujo automatizado
 
 - Cada cambio en main ejecuta los controles de calidad y el workflow .github/workflows/release.yml.
-- El workflow crea una versión firmada, etiqueta v1.0.N y publica en GitHub Releases el APK cinematic-tv-launcher-release.apk junto con su checksum SHA-256.
-- La versión de cada release es versionName=1.0.N y versionCode=N, donde N=1000000000 + GITHUB_RUN_NUMBER. El código alto y creciente supera los códigos de las versiones de prueba anteriores, que usaban minutos desde la época Unix.
+- El workflow crea una versión firmada, muestra `versionName=1.0.N` y publica en GitHub Releases el APK `cinematic-tv-launcher-release.apk` junto con su checksum SHA-256. El tag `v1.0.N+CODE` conserva el código interno monotónico sin contaminar el nombre visible.
+- La versión visible es `versionName=1.0.GITHUB_RUN_NUMBER`. El código interno es `versionCode=1000000000 + GITHUB_RUN_NUMBER`; sigue siendo creciente y permite actualizar las instalaciones anteriores. Ese código se usa para comparar/validar la APK y no se muestra en el aviso.
 - El actualizador consulta el feed público de este repositorio: https://api.github.com/repos/Azkharii/Azkharii-Launcher/releases/latest. Comprueba versión, tamaño, identificador de paquete y SHA-256 antes de abrir el instalador de Android.
-- En la TV, la comprobación se realiza al reanudar la aplicación y cada seis horas mientras permanece activa. Al encontrar una versión nueva, muestra un aviso; Android exige que la persona confirme la instalación. No se intenta instalar silenciosamente.
+- En la TV, la comprobación se realiza al reanudar y cada 30 minutos mientras permanece en primer plano; los fallos reintentan a los 5, 10, 20 y 30 minutos. El aviso muestra solo el salto de versión. El tamaño, paquete y SHA-256 se siguen verificando antes de abrir el instalador, y Android exige aprobación para instalar.
 
 ## Requisito de configuración única: clave de firma
 
-El workflow no puede publicar una actualización instalable hasta configurar la clave de firma. El repositorio no tiene una release publicada y el workflow necesita secretos de firma en la configuración de GitHub. No se debe introducir una clave efímera por ejecución ni guardar un keystore o contraseñas en el repositorio público.
+Para publicar actualizaciones nuevas, el workflow debe utilizar siempre la clave persistente guardada en GitHub Actions. Si falta alguno de los cuatro secretos, la publicación debe fallar de forma explícita; no se debe introducir una clave efímera por ejecución ni guardar un keystore o contraseñas en el repositorio público.
 
 1. **Antes de crear una clave nueva**, comprobar si ya se distribuyó una versión estable de `com.cinematic.tvlauncher` firmada desde el repositorio privado anterior. Si existe, recuperar y reutilizar exactamente ese keystore/alias/contraseñas; cambiar la clave impide actualizar esa instalación. Crear una clave nueva solo si no hay instalaciones estables firmadas con una clave anterior. La clave debe guardarse fuera del repositorio y de forma segura. Por ejemplo:
 
