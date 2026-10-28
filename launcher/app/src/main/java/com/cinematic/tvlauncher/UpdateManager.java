@@ -41,7 +41,7 @@ public final class UpdateManager {
     private static final long REPROMPT=24L*60L*60L*1000L;
     private static final int MAX_JSON=2*1024*1024;
     private static final long MAX_APK=350L*1024L*1024L;
-    private static final String RELEASE_API="https://api.github.com/repos/Azkharii/-hisense-u75k-cinematic-launcher/releases/latest";
+    private static final String RELEASE_API="https://api.github.com/repos/Azkharii/Azkharii-Launcher/releases/latest";
     private static final String APK_NAME="cinematic-tv-launcher-release.apk";
 
     private final Activity activity;

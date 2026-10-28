@@ -108,6 +108,9 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private final int[] focusRootLocation = new int[2];
     private final List<AppItem> pinnedWheelItems = new java.util.ArrayList<>();
     private final List<ImageView> pinnedWheelSlotViews = new ArrayList<>();
+    // Cache per-package icon-derived colors for the navigation marker only.
+    private final android.util.LruCache<String, Integer> iconAccentCache =
+            new android.util.LruCache<>(128);
     private int pinnedWheelSelectedIndex = 0;
     private boolean pinnedWheelAnimating = false;
     private boolean rebuildingPinnedWheel = false;
@@ -730,6 +733,19 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         animator.start();
     }
 
+    private int getAppIconAccent(AppItem item) {
+        if (item == null) return IconAccentSampler.sample(null);
+        String packageName = item.getPackageName();
+        if (packageName != null) {
+            Integer cached = iconAccentCache.get(packageName);
+            if (cached != null) return cached;
+        }
+        // The source Drawable is read only for color sampling. No tint/filter is applied.
+        int accent = IconAccentSampler.sample(item.getIcon());
+        if (packageName != null) iconAccentCache.put(packageName, accent);
+        return accent;
+    }
+
     private void updateFocusPositionDot(View anchor) {
         updateFocusPositionDot(anchor, false);
     }
@@ -753,6 +769,15 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             fixedCarouselSlot = true;
             usesSelectionAccent = true;
             selectionAccent = libraryCarousel.getSelectedAccentColor();
+        } else if (pinnedAppsWheel != null
+                && (anchor == pinnedAppsWheel || isDescendantOf(anchor, pinnedAppsWheel))) {
+            View pinnedTarget = anchor == pinnedAppsWheel ? getPinnedWheelCenterChild() : anchor;
+            if (pinnedTarget != null) target = pinnedTarget;
+            Object tag = target.getTag();
+            if (tag instanceof AppItem) {
+                selectionAccent = getAppIconAccent((AppItem) tag);
+                usesSelectionAccent = true;
+            }
         } else if (continueWatchingWheel != null
                 && (anchor == continueWatchingWheel || isDescendantOf(anchor, continueWatchingWheel))) {
             selectionAccent = continueWatchingWheel.getAccentColorForTarget(anchor);
@@ -838,40 +863,72 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private int sampleHudAccent(Drawable wallpaper) {
         Bitmap sample = null;
         try {
-            final int sampleWidth = 40;
-            final int sampleHeight = 24;
+            final int sampleWidth = 48;
+            final int sampleHeight = 28;
+            final int binCount = 24; // 15-degree hue buckets soften small hue variations.
             sample = Bitmap.createBitmap(sampleWidth, sampleHeight, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(sample);
             wallpaper.setBounds(0, 0, sampleWidth, sampleHeight);
             wallpaper.draw(canvas);
-            double hueX = 0d;
-            double hueY = 0d;
-            double saturationSum = 0d;
-            double weightSum = 0d;
+
+            // Pick the dominant family of usable colors instead of averaging unrelated hues
+            // across the entire wallpaper (which can create an artificial neon/grey midpoint).
+            double[] hueX = new double[binCount];
+            double[] hueY = new double[binCount];
+            double[] saturationSum = new double[binCount];
+            double[] valueSum = new double[binCount];
+            double[] weightSum = new double[binCount];
             float[] hsv = new float[3];
+
             for (int y = 0; y < sampleHeight; y++) {
                 for (int x = 0; x < sampleWidth; x++) {
                     int pixel = sample.getPixel(x, y);
                     if (Color.alpha(pixel) < 96) continue;
                     Color.colorToHSV(pixel, hsv);
-                    if (hsv[2] < 0.12f || hsv[2] > 0.98f) continue;
-                    double saturation = Math.max(0.12d, hsv[1]);
-                    double weight = saturation * (0.35d + hsv[2]);
+                    // Ignore near-neutral highlights, crushed shadows and clipped whites.
+                    if (hsv[1] < 0.18f || hsv[2] < 0.16f || hsv[2] > 0.94f) continue;
+
+                    int bin = Math.min(binCount - 1, (int) (hsv[0] / (360f / binCount)));
+                    double weight = hsv[1] * (0.55d + 0.45d * (1d - Math.abs(hsv[2] - 0.55d)));
                     double radians = Math.toRadians(hsv[0]);
-                    hueX += Math.cos(radians) * weight;
-                    hueY += Math.sin(radians) * weight;
-                    saturationSum += hsv[1] * weight;
-                    weightSum += weight;
+                    hueX[bin] += Math.cos(radians) * weight;
+                    hueY[bin] += Math.sin(radians) * weight;
+                    saturationSum[bin] += hsv[1] * weight;
+                    valueSum[bin] += hsv[2] * weight;
+                    weightSum[bin] += weight;
                 }
             }
-            if (weightSum <= 0.0001d) return Color.rgb(84, 224, 255);
-            double hue = Math.toDegrees(Math.atan2(hueY, hueX));
+
+            int dominantBin = 0;
+            for (int i = 1; i < binCount; i++) {
+                if (weightSum[i] > weightSum[dominantBin]) dominantBin = i;
+            }
+
+            // Blend the winning bucket with its immediate neighbors so the result does not
+            // flicker when a wallpaper color sits close to a bucket boundary.
+            double sumHueX = 0d, sumHueY = 0d, sumSaturation = 0d, sumValue = 0d, sumWeight = 0d;
+            for (int offset = -1; offset <= 1; offset++) {
+                int bin = (dominantBin + offset + binCount) % binCount;
+                sumHueX += hueX[bin];
+                sumHueY += hueY[bin];
+                sumSaturation += saturationSum[bin];
+                sumValue += valueSum[bin];
+                sumWeight += weightSum[bin];
+            }
+
+            if (sumWeight <= 0.0001d) return Color.rgb(155, 203, 215);
+            double hue = Math.toDegrees(Math.atan2(sumHueY, sumHueX));
             if (hue < 0d) hue += 360d;
-            float saturation = (float) Math.max(0.38d, Math.min(0.68d, saturationSum / weightSum));
-            return Color.HSVToColor(new float[] {(float) hue, saturation, 0.98f});
+
+            // Keep the wallpaper hue, but reduce saturation and brightness so HUD text/glass
+            // complements the image rather than looking like a saturated overlay.
+            float saturation = (float) Math.max(0.26d, Math.min(0.48d,
+                    (sumSaturation / sumWeight) * 0.78d));
+            float value = (float) Math.max(0.78d, Math.min(0.90d, sumValue / sumWeight));
+            return Color.HSVToColor(new float[] {(float) hue, saturation, value});
         } catch (Exception e) {
-            Log.d(TAG, "Could not sample wallpaper accent; using cyan fallback", e);
-            return Color.rgb(84, 224, 255);
+            Log.d(TAG, "Could not sample wallpaper accent; using a muted cool fallback", e);
+            return Color.rgb(155, 203, 215);
         } finally {
             if (sample != null && !sample.isRecycled()) sample.recycle();
         }
@@ -886,8 +943,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         final int startAccent = currentHudAccent;
         ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
         hudColorAnimator = animator;
-        // Follow the wallpaper promptly while keeping the shortest-HSV-path transition smooth.
-        animator.setDuration(1800L);
+        // Ease into the new, deliberately muted wallpaper accent instead of flashing to neon.
+        animator.setDuration(5200L);
         animator.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
         animator.addUpdateListener(animation -> {
             float fraction = (float) animation.getAnimatedValue();
@@ -896,7 +953,10 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         });
         animator.addListener(new android.animation.AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) {
-                if (hudColorAnimator == animator) hudColorAnimator = null;
+                // A cancelled animation can also receive onAnimationEnd. Only the active
+                // animator may commit its target, otherwise an obsolete wallpaper tint jumps in.
+                if (hudColorAnimator != animator) return;
+                hudColorAnimator = null;
                 applyAdaptiveHudAccent(targetAccent);
             }
             @Override public void onAnimationCancel(Animator animation) {
@@ -924,43 +984,53 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         return Color.HSVToColor(blended);
     }
 
-    /** Mutates one glass drawable; the transition does not allocate a new background each frame. */
+    /** Mutates the existing glass drawable so color transitions stay allocation-light. */
     private void applyAdaptiveHudAccent(int accent) {
         currentHudAccent = accent;
         int r = Color.red(accent);
         int g = Color.green(accent);
         int b = Color.blue(accent);
+        float[] accentHsv = new float[3];
+        Color.colorToHSV(accent, accentHsv);
+        // Keep the HUD text bright for TV-distance readability while making its hue
+        // visibly follow the wallpaper instead of leaving the clock almost pure white.
+        int clockTextColor = Color.HSVToColor(new float[] {
+                accentHsv[0], Math.max(0.12f, Math.min(0.30f, accentHsv[1] * 0.62f)), 0.98f
+        });
+        int weatherTextColor = Color.HSVToColor(new float[] {
+                accentHsv[0], Math.max(0.18f, Math.min(0.40f, accentHsv[1] * 0.90f)), 0.96f
+        });
         if (focusPositionDotBackground != null && !focusPositionUsesSelectionAccent) {
             focusPositionDotBackground.setColor(accent);
             focusPositionDotBackground.setStroke(Math.max(1, dp(1)), 0xCCFFFFFF);
             focusPositionDot.invalidate();
         }
         if (tvClock != null) {
-            tvClock.setTextColor(Color.rgb(246, 251, 255));
-            tvClock.setShadowLayer(dp(9), 0f, 0f, Color.argb(205, r, g, b));
+            tvClock.setTextColor(clockTextColor);
+            tvClock.setShadowLayer(dp(6), 0f, 0f, Color.argb(118, r, g, b));
         }
         if (tvDate != null) {
             tvDate.setTextColor(accent);
-            tvDate.setShadowLayer(dp(5), 0f, 0f, Color.argb(175, r, g, b));
+            tvDate.setShadowLayer(dp(3), 0f, 0f, Color.argb(92, r, g, b));
         }
         if (tvWeather != null) {
-            int weatherR = (r + 255) / 2;
-            int weatherG = (g + 255) / 2;
-            int weatherB = (b + 255) / 2;
-            tvWeather.setTextColor(Color.rgb(weatherR, weatherG, weatherB));
+            // Use the same smoothly interpolated wallpaper hue, with a bright text value.
+            tvWeather.setTextColor(weatherTextColor);
+            int[] glassColors = {
+                    Color.argb(24, r, g, b),
+                    Color.argb(88, 8, 14, 26),
+                    Color.argb(36, r, g, b)
+            };
             if (weatherGlassBackground == null) {
                 weatherGlassBackground = new GradientDrawable(
-                        GradientDrawable.Orientation.TOP_BOTTOM,
-                        new int[] {Color.argb(42, r, g, b), Color.argb(102, 8, 14, 26),
-                                Color.argb(66, r, g, b)});
+                        GradientDrawable.Orientation.TOP_BOTTOM, glassColors);
                 weatherGlassBackground.setCornerRadius(dp(14));
                 tvWeather.setBackground(weatherGlassBackground);
             } else {
-                weatherGlassBackground.setColors(new int[] {Color.argb(42, r, g, b),
-                        Color.argb(102, 8, 14, 26), Color.argb(66, r, g, b)});
+                weatherGlassBackground.setColors(glassColors);
             }
-            weatherGlassBackground.setStroke(Math.max(1, dp(1)), Color.argb(165, r, g, b));
-            tvWeather.setShadowLayer(dp(3), 0f, 0f, Color.argb(150, r, g, b));
+            weatherGlassBackground.setStroke(Math.max(1, dp(1)), Color.argb(92, r, g, b));
+            tvWeather.setShadowLayer(dp(2), 0f, 0f, Color.argb(72, r, g, b));
         }
     }
 
@@ -1408,6 +1478,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         if (backgroundManager != null) {
             backgroundManager.onResume();
         }
+        if (continueWatchingWheel != null) continueWatchingWheel.resumeBackgroundWork();
         if (controlManager != null) {
             controlManager.updateWifiIndicator();
         }
@@ -1514,6 +1585,14 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         super.onPause();
         if (updateManager != null) updateManager.onPause();
         unregisterDisplayModeListener();
+        // Stop wallpaper, weather, and adaptive-HUD work while another app is foreground.
+        if (weatherWidgetManager != null) weatherWidgetManager.onPause();
+        if (continueWatchingWheel != null) continueWatchingWheel.pauseBackgroundWork();
+        hudColorGeneration++;
+        if (hudColorAnimator != null) {
+            hudColorAnimator.cancel();
+            hudColorAnimator = null;
+        }
         if (backgroundManager != null) {
             backgroundManager.onPause();
         }
