@@ -207,3 +207,12 @@ The automatic update path remains implemented but is not deployable against the 
 - **Stable release: BLOCKED.** The run above only produces a debug APK. The persistent release keystore and four GitHub Actions secrets must be configured before a signed stable APK can be published. Before creating a new key, verify that no previously distributed stable installation requires an existing signing key.
 - **Launcher icon/banner: NOT CHANGED.** The Google Photos share link did not expose the actual image bytes in this environment; preserve existing assets rather than substitute unrelated artwork.
 
+
+
+## Performance optimization follow-up — 2026-10-28
+
+- **Scope:** event-driven package/connectivity refresh, metadata-first app discovery, bounded update-check retry policy.
+- **Preserved behavior:** wallpaper rotation/crossfade, recent ordering rules, full library, pinned apps, Continue Watching, APK verification and Android installer confirmation.
+- **Portable test added:** `UpdateCheckPolicyTest` covers initial check, 30-minute successful interval, and bounded retry backoff.
+- **Hosted integrity/tests/build:** pending CI for PR `perf/event-driven-refresh-and-cpu`; do not mark PASS before the workflow reports its actual result.
+- **Hisense U75K CPU/GPU after-change measurements:** NOT TESTED in this environment. Existing RenderThread/Mali values remain the historical baseline only.

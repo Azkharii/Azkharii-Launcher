@@ -32,12 +32,14 @@ import java.util.concurrent.Executors;
 public final class UpdateManager {
     private static final String TAG="LauncherUpdater";
     private static final String PREFS="cinematic_launcher_prefs";
-    private static final String LAST_CHECK="update_last_check_ms";
+    private static final String LAST_SUCCESS="update_last_success_ms";
+    private static final String LAST_ATTEMPT="update_last_attempt_ms";
+    private static final String FAILURE_COUNT="update_check_failure_count";
     private static final String LAST_STATUS="update_last_status";
     private static final String PROMPT_CODE="update_last_prompted_code";
     private static final String PROMPT_TIME="update_last_prompted_at";
     private static final String PENDING_INSTALL="update_pending_install_path";
-    private static final long INTERVAL=6L*60L*60L*1000L;
+    private static final long INTERVAL=UpdateCheckPolicy.CHECK_INTERVAL_MS;
     private static final long REPROMPT=24L*60L*60L*1000L;
     private static final int MAX_JSON=2*1024*1024;
     private static final long MAX_APK=350L*1024L*1024L;
@@ -54,7 +56,7 @@ public final class UpdateManager {
         @Override public void run(){
             if(closed||!resumed)return;
             checkIfDue();
-            handler.postDelayed(this,INTERVAL);
+            scheduleNextCheck();
         }
     };
 
@@ -68,7 +70,7 @@ public final class UpdateManager {
         if(BuildConfig.DEBUG||BuildConfig.APPLICATION_ID.endsWith(".debug"))return;
         handler.removeCallbacks(periodicCheck);
         if(!tryInstallPendingUpdate())checkIfDue();
-        handler.postDelayed(periodicCheck,INTERVAL);
+        scheduleNextCheck();
     }
     public void onPause(){resumed=false;handler.removeCallbacks(periodicCheck);}
     public void close(){closed=true;resumed=false;handler.removeCallbacksAndMessages(null);executor.shutdownNow();}
@@ -76,11 +78,40 @@ public final class UpdateManager {
     private void checkIfDue(){
         if(closed||!resumed||checking)return;
         long now=System.currentTimeMillis();
-        if(now-prefs.getLong(LAST_CHECK,0L)<INTERVAL)return;
-        prefs.edit().putLong(LAST_CHECK,now).apply();
+        long delay=UpdateCheckPolicy.nextDelayMillis(now,
+                prefs.getLong(LAST_SUCCESS,0L),
+                prefs.getLong(LAST_ATTEMPT,0L),
+                prefs.getInt(FAILURE_COUNT,0));
+        if(delay>0L)return;
+        prefs.edit().putLong(LAST_ATTEMPT,now).apply();
         checking=true;
         try{executor.execute(this::checkLatestRelease);}
-        catch(java.util.concurrent.RejectedExecutionException ignored){checking=false;}
+        catch(java.util.concurrent.RejectedExecutionException ignored){
+            checking=false;
+            recordCheckFailure("CHECK_NOT_SCHEDULED");
+            scheduleNextCheck();
+        }
+    }
+
+    private void scheduleNextCheck(){
+        handler.removeCallbacks(periodicCheck);
+        if(closed||!resumed||checking)return;
+        long now=System.currentTimeMillis();
+        long delay=UpdateCheckPolicy.nextDelayMillis(now,
+                prefs.getLong(LAST_SUCCESS,0L),
+                prefs.getLong(LAST_ATTEMPT,0L),
+                prefs.getInt(FAILURE_COUNT,0));
+        handler.postDelayed(periodicCheck,Math.max(1000L,delay));
+    }
+
+    private void recordCheckSuccess(){
+        prefs.edit().putLong(LAST_SUCCESS,System.currentTimeMillis())
+                .putInt(FAILURE_COUNT,0).apply();
+    }
+
+    private void recordCheckFailure(String status){
+        int failures=Math.min(16,prefs.getInt(FAILURE_COUNT,0)+1);
+        prefs.edit().putString(LAST_STATUS,status).putInt(FAILURE_COUNT,failures).apply();
     }
 
     private void checkLatestRelease(){
@@ -93,20 +124,23 @@ public final class UpdateManager {
             connection.setRequestProperty("User-Agent","CinematicTVLauncher/"+BuildConfig.VERSION_NAME);
             int status=connection.getResponseCode();
             if(status==404){
-                prefs.edit().putString(LAST_STATUS,"PRIVATE_OR_NO_PUBLIC_RELEASE").apply();
+                recordCheckFailure("PRIVATE_OR_NO_PUBLIC_RELEASE");
                 Log.w(TAG,"Latest release is not anonymously readable; repository may be private.");return;
             }
             if(status==403||status==429){
-                prefs.edit().putString(LAST_STATUS,"RATE_LIMITED").apply();Log.w(TAG,"GitHub rate limit, HTTP "+status);return;
+                recordCheckFailure("RATE_LIMITED");Log.w(TAG,"GitHub rate limit, HTTP "+status);return;
             }
             if(status<200||status>=300){
-                prefs.edit().putString(LAST_STATUS,"HTTP_"+status).apply();Log.w(TAG,"Release HTTP status "+status);return;
+                recordCheckFailure("HTTP_"+status);Log.w(TAG,"Release HTTP status "+status);return;
             }
             JSONObject release=new JSONObject(readLimited(connection.getInputStream(),MAX_JSON));
-            if(release.optBoolean("draft",false)||release.optBoolean("prerelease",false))return;
+            if(release.optBoolean("draft",false)||release.optBoolean("prerelease",false)){
+                recordCheckSuccess();return;
+            }
             long remote=UpdateVersionPolicy.parseVersionCodeFromTag(release.optString("tag_name",""));
             if(!UpdateVersionPolicy.isNewer(remote,BuildConfig.VERSION_CODE)){
-                prefs.edit().putString(LAST_STATUS,"CURRENT").apply();return;
+                prefs.edit().putString(LAST_STATUS,"CURRENT").apply();
+                recordCheckSuccess();return;
             }
             JSONArray assets=release.optJSONArray("assets");
             String url=null,digest=null;long size=-1L;
@@ -119,17 +153,22 @@ public final class UpdateManager {
                 size=asset.optLong("size",-1L);break;
             }
             if(url==null||digest==null||digest.length()!=64||size<=0L||size>MAX_APK){
-                prefs.edit().putString(LAST_STATUS,"MISSING_ASSET_OR_DIGEST").apply();
+                recordCheckFailure("MISSING_ASSET_OR_DIGEST");
                 Log.w(TAG,"Latest release lacks expected APK asset, size, or SHA-256 digest.");return;
             }
             UpdateInfo info=new UpdateInfo(release.optString("name",release.optString("tag_name","")),
                     release.optString("body",""),remote,url,digest.toLowerCase(Locale.ROOT),size);
             prefs.edit().putString(LAST_STATUS,"UPDATE_AVAILABLE").apply();
+            recordCheckSuccess();
             handler.post(()->showUpdateDialog(info));
         }catch(Exception e){
-            prefs.edit().putString(LAST_STATUS,"CHECK_FAILED").apply();
+            recordCheckFailure("CHECK_FAILED");
             Log.w(TAG,"Update check failed; installed launcher remains usable.",e);
-        }finally{if(connection!=null)connection.disconnect();checking=false;}
+        }finally{
+            if(connection!=null)connection.disconnect();
+            checking=false;
+            handler.post(this::scheduleNextCheck);
+        }
     }
 
     private void showUpdateDialog(UpdateInfo info){

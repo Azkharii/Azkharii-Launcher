@@ -37,3 +37,29 @@ This pattern points to sustained rendering/composition work, not proof of a pack
 - **Build/test:** pending hosted CI.
 - **TV before/after comparison:** pending; do not mark as fixed until measured.
 - **Stable OTA release:** blocked until the persistent signing key/secrets documented in `docs/RELEASING.md` are configured. Do not publish an APK signed with a temporary key because Android will reject it as an in-place update.
+
+
+## Follow-up pass — event-driven updates and on-demand artwork
+
+### Implementation in `perf/event-driven-refresh-and-cpu`
+
+- Keep the existing disabled-by-default full-screen wallpaper zoom. Wallpaper rotation and crossfade remain unchanged.
+- Replace repeated app-intent discovery with cached lightweight metadata. The metadata cache is invalidated when Android's `LauncherApps.Callback` reports installed-package or launchability changes; the callback is registered only while the launcher is resumed.
+- Rank recent apps using the same UsageStats/local-history logic before loading artwork, so the main row materializes artwork only for its visible top five.
+- Build the pinned-app wheel from the pinned package set instead of loading artwork for every installed app and then discarding most results.
+- Update the Wi-Fi indicator from `ConnectivityManager.NetworkCallback` events while foregrounded, with an immediate state snapshot on resume and unregister-on-pause.
+- Reduce release-check interval from six hours to 30 minutes while the launcher is foregrounded. Keep network work off the UI thread, retry failures with bounded exponential backoff (5, 10, 20, then 30 minutes), and retain APK identity/version/SHA-256 validation and Android's confirmation step.
+- Add pure-Java tests for update interval and retry scheduling.
+
+### Preservation constraints
+
+- No feature is removed; package metadata still refreshes on resume as a safety fallback.
+- Recent-app ordering and alphabetical library ordering use the same ranking rules as before.
+- Full artwork is still loaded for the complete library when the library is requested; the main row and pinned wheel load only the artwork they show.
+- Wallpaper rotation stays at 10 seconds; Continue Watching remains driven by the existing system-provider observer with lifecycle-safe refresh.
+
+### Validation status for this pass
+
+- Source-level implementation: pending hosted CI.
+- Physical Hisense CPU/GPU comparison: pending; previous 93.3% RenderThread and 36.6% Mali figures are baseline evidence only, not a post-change result.
+- Visual regression, package install/update notification behavior and network callback behavior: pending confirmation on the TV.

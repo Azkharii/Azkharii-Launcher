@@ -24,7 +24,11 @@ import android.media.tv.TvInputManager;
 import android.media.tv.TvContract;
 import android.media.tv.TvView;
 import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
@@ -54,6 +58,19 @@ public class TvControlManager {
     private final View inputOverlay;
     private final TvView inputTvView;
     private TvInputManager tvInputManager;
+    private ConnectivityManager connectivityManager;
+    private final Handler networkHandler = new Handler(Looper.getMainLooper());
+    private boolean networkCallbackRegistered;
+
+    private final Runnable wifiRefresh = this::updateWifiIndicator;
+    private final ConnectivityManager.NetworkCallback networkCallback =
+            new ConnectivityManager.NetworkCallback() {
+        @Override public void onAvailable(Network network) { scheduleWifiIndicatorRefresh(); }
+        @Override public void onLost(Network network) { scheduleWifiIndicatorRefresh(); }
+        @Override public void onCapabilitiesChanged(Network network, NetworkCapabilities capabilities) {
+            scheduleWifiIndicatorRefresh();
+        }
+    };
 
     private static final class InputOption {
         final TvInputInfo input;
@@ -81,6 +98,8 @@ public class TvControlManager {
         this.inputOverlay = inputOverlay;
         this.inputTvView = inputTvView;
         this.tvInputManager = (TvInputManager) activity.getSystemService(Context.TV_INPUT_SERVICE);
+        this.connectivityManager = (ConnectivityManager)
+                activity.getSystemService(Context.CONNECTIVITY_SERVICE);
 
         setupListeners();
         updateWifiIndicator();
@@ -94,6 +113,41 @@ public class TvControlManager {
         if (btnSearch != null) {
             btnSearch.setOnClickListener(v -> handleAssistantAction());
         }
+    }
+
+    /** Register connectivity events only while the launcher is visible. */
+    public void onResume() {
+        if (connectivityManager == null) {
+            connectivityManager = (ConnectivityManager)
+                    activity.getSystemService(Context.CONNECTIVITY_SERVICE);
+        }
+        if (connectivityManager != null && !networkCallbackRegistered) {
+            try {
+                connectivityManager.registerDefaultNetworkCallback(networkCallback, networkHandler);
+                networkCallbackRegistered = true;
+            } catch (RuntimeException e) {
+                Log.w(TAG, "Could not register foreground connectivity callback", e);
+            }
+        }
+        updateWifiIndicator();
+    }
+
+    /** Release the callback when another app covers the launcher. */
+    public void onPause() {
+        networkHandler.removeCallbacks(wifiRefresh);
+        if (!networkCallbackRegistered || connectivityManager == null) return;
+        try {
+            connectivityManager.unregisterNetworkCallback(networkCallback);
+        } catch (RuntimeException e) {
+            Log.d(TAG, "Connectivity callback was already unregistered", e);
+        } finally {
+            networkCallbackRegistered = false;
+        }
+    }
+
+    private void scheduleWifiIndicatorRefresh() {
+        networkHandler.removeCallbacks(wifiRefresh);
+        networkHandler.post(wifiRefresh);
     }
 
     public void updateWifiIndicator() {

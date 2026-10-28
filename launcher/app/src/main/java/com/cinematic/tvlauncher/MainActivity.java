@@ -3,6 +3,7 @@ package com.cinematic.tvlauncher;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.pm.PackageManager;
+import android.content.pm.LauncherApps;
 import android.hardware.display.DisplayManager;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -20,6 +21,7 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.UserHandle;
 import android.text.format.DateFormat;
 import android.util.Log;
 import android.view.Display;
@@ -121,6 +123,40 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private int optionsPinnedIndex = -1;
 
     private BroadcastReceiver timeTickReceiver;
+    private LauncherApps launcherApps;
+    private boolean launcherAppsCallbackRegistered;
+    private boolean activityResumed;
+
+    private final Runnable packageRefreshRunnable = () -> {
+        if (!activityResumed || isFinishing() || isDestroyed() || discoveryManager == null) return;
+        discoveryManager.invalidateInstalledAppsCache();
+        loadApps();
+        if (libraryVisible && libraryCarousel != null) {
+            int selectedIndex = libraryCarousel.getSelectedIndex();
+            libraryCarousel.setItems(discoveryManager.discoverApps(0));
+            libraryCarousel.setSelectedIndex(selectedIndex);
+        }
+    };
+
+    private final LauncherApps.Callback launcherAppsCallback = new LauncherApps.Callback() {
+        @Override public void onPackageAdded(String packageName, UserHandle user) {
+            schedulePackageRefresh();
+        }
+        @Override public void onPackageChanged(String packageName, UserHandle user) {
+            schedulePackageRefresh();
+        }
+        @Override public void onPackageRemoved(String packageName, UserHandle user) {
+            schedulePackageRefresh();
+        }
+        @Override public void onPackagesAvailable(String[] packageNames, UserHandle user,
+                boolean replacing) {
+            schedulePackageRefresh();
+        }
+        @Override public void onPackagesUnavailable(String[] packageNames, UserHandle user,
+                boolean replacing) {
+            schedulePackageRefresh();
+        }
+    };
 
     private DisplayManager displayManager;
     private boolean displayListenerRegistered = false;
@@ -355,6 +391,39 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         } catch(Exception e) {Log.d(TAG,"Unable to read active display mode",e);}
     }
 
+    private void schedulePackageRefresh() {
+        if (!activityResumed) return;
+        lifecycleHandler.removeCallbacks(packageRefreshRunnable);
+        lifecycleHandler.postDelayed(packageRefreshRunnable, 300L);
+    }
+
+    private void registerLauncherAppsCallback() {
+        if (launcherAppsCallbackRegistered) return;
+        try {
+            if (launcherApps == null) {
+                launcherApps = (LauncherApps) getSystemService(Context.LAUNCHER_APPS_SERVICE);
+            }
+            if (launcherApps != null) {
+                launcherApps.registerCallback(launcherAppsCallback, lifecycleHandler);
+                launcherAppsCallbackRegistered = true;
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "LauncherApps callbacks unavailable; resume-time refresh remains enabled.", e);
+        }
+    }
+
+    private void unregisterLauncherAppsCallback() {
+        lifecycleHandler.removeCallbacks(packageRefreshRunnable);
+        if (!launcherAppsCallbackRegistered || launcherApps == null) return;
+        try {
+            launcherApps.unregisterCallback(launcherAppsCallback);
+        } catch (RuntimeException e) {
+            Log.d(TAG, "LauncherApps callback was already unregistered", e);
+        } finally {
+            launcherAppsCallbackRegistered = false;
+        }
+    }
+
     private void setupClockReceiver() {
         updateClockAndDate();
         timeTickReceiver = new BroadcastReceiver() {
@@ -494,7 +563,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         pinnedWheelItems.clear();
         java.util.Set<String> pinned = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                 .getStringSet(KEY_PINNED_APPS, java.util.Collections.emptySet());
-        List<AppItem> all = discoveryManager.discoverApps(0);
+        List<AppItem> all = discoveryManager.discoverApps(pinned);
         for (AppItem candidate : all) {
             if (candidate != null && pinned.contains(candidate.getPackageName())) {
                 pinnedWheelItems.add(candidate);
@@ -1474,13 +1543,15 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     @Override
     protected void onResume() {
         super.onResume();
+        activityResumed = true;
+        registerLauncherAppsCallback();
         registerDisplayModeListener();
         if (backgroundManager != null) {
             backgroundManager.onResume();
         }
         if (continueWatchingWheel != null) continueWatchingWheel.resumeBackgroundWork();
         if (controlManager != null) {
-            controlManager.updateWifiIndicator();
+            controlManager.onResume();
         }
         loadApps();
         refreshContinueWatchingWheel();
@@ -1583,6 +1654,9 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     @Override
     protected void onPause() {
         super.onPause();
+        activityResumed = false;
+        unregisterLauncherAppsCallback();
+        if (controlManager != null) controlManager.onPause();
         if (updateManager != null) updateManager.onPause();
         unregisterDisplayModeListener();
         // Stop wallpaper, weather, and adaptive-HUD work while another app is foreground.
