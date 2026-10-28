@@ -179,6 +179,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         launcherConfig = LauncherConfig.loadFromResources(this);
         discoveryManager = new AppDiscoveryManager(this);
         updateManager = new UpdateManager(this);
+        registerLauncherAppsCallback();
 
         initViews();
         setupClockReceiver();
@@ -393,6 +394,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     }
 
     private void schedulePackageRefresh() {
+        if (discoveryManager != null) discoveryManager.invalidateInstalledAppsCache();
         if (!activityResumed) return;
         lifecycleHandler.removeCallbacks(packageRefreshRunnable);
         lifecycleHandler.postDelayed(packageRefreshRunnable, 300L);
@@ -901,9 +903,13 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
 
         focusPositionUsesSelectionAccent = usesSelectionAccent;
         if (focusPositionDotBackground != null) {
-            focusPositionDotBackground.setColor(usesSelectionAccent ? selectionAccent : currentHudAccent);
-            focusPositionDotBackground.setStroke(Math.max(1, dp(1)), 0xCCFFFFFF);
-            focusPositionDot.invalidate();
+            int markerColor = usesSelectionAccent ? selectionAccent : currentHudAccent;
+            android.content.res.ColorStateList existingColor = focusPositionDotBackground.getColor();
+            if (existingColor == null || existingColor.getDefaultColor() != markerColor) {
+                focusPositionDotBackground.setColor(markerColor);
+                focusPositionDotBackground.setStroke(Math.max(1, dp(1)), 0xCCFFFFFF);
+                focusPositionDot.invalidate();
+            }
         }
         focusPositionDot.setX(proposedX);
         focusPositionDot.setY(proposedY);
@@ -1545,7 +1551,6 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     protected void onResume() {
         super.onResume();
         activityResumed = true;
-        registerLauncherAppsCallback();
         registerDisplayModeListener();
         if (backgroundManager != null) {
             backgroundManager.onResume();
@@ -1656,7 +1661,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     protected void onPause() {
         super.onPause();
         activityResumed = false;
-        unregisterLauncherAppsCallback();
+        lifecycleHandler.removeCallbacks(packageRefreshRunnable);
         if (controlManager != null) controlManager.onPause();
         if (updateManager != null) updateManager.onPause();
         unregisterDisplayModeListener();
@@ -1675,6 +1680,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
 
     @Override
     protected void onDestroy() {
+        activityResumed = false;
+        unregisterLauncherAppsCallback();
         if (updateManager != null) updateManager.close();
         if (hudColorAnimator != null) hudColorAnimator.cancel();
         super.onDestroy();
