@@ -922,9 +922,9 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             int markerColor = usesSelectionAccent ? selectionAccent : currentHudAccent;
             android.content.res.ColorStateList existingColor = focusPositionDotBackground.getColor();
             if (existingColor == null || existingColor.getDefaultColor() != markerColor) {
+                // The attached background invalidates its host view when its color changes.
+                // Reassigning the static white stroke and invalidating the view again is redundant.
                 focusPositionDotBackground.setColor(markerColor);
-                focusPositionDotBackground.setStroke(Math.max(1, dp(1)), 0xCCFFFFFF);
-                focusPositionDot.invalidate();
             }
         }
         focusPositionDot.setX(proposedX);
@@ -1105,8 +1105,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         if (focusPositionDotBackground != null && !focusPositionUsesSelectionAccent) {
             android.content.res.ColorStateList existingColor = focusPositionDotBackground.getColor();
             if (existingColor == null || existingColor.getDefaultColor() != accent) {
+                // setColor() invalidates the attached view through Drawable.Callback.
                 focusPositionDotBackground.setColor(accent);
-                focusPositionDot.invalidate();
             }
         }
         if (tvClock != null) {
