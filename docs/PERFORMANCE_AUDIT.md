@@ -110,3 +110,12 @@ No UI component, navigation behavior, Watch Next feature, wallpaper crossfade, o
 
 - Source edits are committed on the dedicated branch; automated tests, integrity checks, and APK build must pass in GitHub Actions before considering the changes integration-ready.
 - A post-change CPU/RAM capture on the Hisense TV is still required. The optimization is not marked as physically verified until the same idle scene is measured after installing the resulting APK.
+
+
+## Follow-up — remove forced refresh-rate preference and reduce animation setup work (2026-10-28)
+
+- Removed the Activity's 60 Hz preferred-mode request from both startup and resume. The launcher no longer calls `WindowManager.LayoutParams.preferredRefreshRate` or `preferredDisplayModeId`, nor registers a display listener solely to log refresh changes.
+- Removed the now-unused `DisplayModeSelector` helper and its dedicated tests from the standalone unit-test runner. Android/TV display policy now selects the refresh mode; the app does not claim a target refresh rate or equate Hz with rendered FPS.
+- Removed boxed per-slot angle storage from the pinned-app wheel animation. The same deterministic starting angle is calculated from the slot index when needed; card trajectories and per-frame focus-marker behavior remain unchanged.
+- Existing source review confirms wallpaper zoom is disabled by default and its fallback default is also false; wallpaper changes still crossfade. The adaptive glow builds gradients on bounds/palette changes rather than inside `draw()`; app/Continue Watching data and artwork work is already off the UI thread.
+- **Verification still required:** hosted CI/build and on-TV comparison have not run for this new branch yet. Removing the refresh-rate preference is a source-level behavior change, not proof of an FPS improvement. Recheck frame statistics on the TV after a compatible APK is built and installed.
