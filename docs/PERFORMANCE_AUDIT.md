@@ -63,3 +63,23 @@ This pattern points to sustained rendering/composition work, not proof of a pack
 - Source-level implementation: pending hosted CI.
 - Physical Hisense CPU/GPU comparison: pending; previous 93.3% RenderThread and 36.6% Mali figures are baseline evidence only, not a post-change result.
 - Visual regression, package install/update notification behavior and network callback behavior: pending confirmation on the TV.
+
+## Seguimiento — aviso OTA compacto y reducción de trabajo de renderizado (2026-10-28)
+
+### Evidencia del Hisense U75K
+
+- La versión instalada reportada fue `1.0.1000000004`.
+- En una muestra de reposo de unos 20 segundos, el proceso osciló entre `0%` y `146%` de CPU; la memoria residente (`RES`) varió de `192 MiB` a `251 MiB` y terminó cerca de `208 MiB`.
+- En la inspección de hilos, `RenderThread` llegó a `82.5–83%`, `mali-cmar-backend` a `32.5–33.5%` y `hwuiTask0/1` a unos `7.5–8%`. Son capturas puntuales, no promedios completos ni prueba por sí sola de una causa única.
+
+### Cambios de código propuestos en esta rama
+
+- `MainActivity.animateAdaptiveHudAccent()` mantenía una animación del HUD de 5.2 segundos tras el cambio de fondo; el intervalo de rotación del fondo es de 10 segundos. En cada frame se convertían extremos HSV, se asignaban sombras/colores de cristal y se invalidaba el indicador de foco aunque algunos valores no cambiasen.
+- La adaptación del color se conserva, pero la transición se reduce a 1.8 segundos y las actualizaciones visibles se limitan a unas 30 por segundo. Los extremos HSV y buffers de color se reutilizan; color de texto, sombras, cristal del tiempo y punto de foco solo se modifican cuando el valor renderizado cambia.
+- El diálogo OTA ahora presenta solo la versión instalada → disponible y una frase corta de verificación. El nombre visible pasa a `1.0.N`; el `versionCode` Android permanece creciente y se añade como metadato al tag `v1.0.N+CODE`, de modo que el instalador mantiene sus comparaciones y verificaciones.
+- El zoom opcional del fondo permanece disponible y desactivado por defecto. La rotación de fondos, crossfade, carruseles, aplicaciones fijadas, Continuar viendo y actualización segura se conservan.
+
+### Verificación pendiente
+
+- La rama fuente y las pruebas se están preparando para CI; aún no hay resultado de validación final.
+- La comparación de CPU/RAM en el televisor después de instalar una versión nueva sigue pendiente. No debe darse por corregido el pico hasta medir la misma escena en reposo después de la actualización.
