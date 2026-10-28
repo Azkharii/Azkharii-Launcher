@@ -1037,7 +1037,11 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             hudColorAnimator = null;
         }
         final int startAccent = currentHudAccent;
-        if (startAccent == targetAccent) {
+        int colorDistance = Math.abs(Color.red(startAccent) - Color.red(targetAccent))
+                + Math.abs(Color.green(startAccent) - Color.green(targetAccent))
+                + Math.abs(Color.blue(startAccent) - Color.blue(targetAccent));
+        // Avoid scheduling a full UI color animation for visually negligible changes.
+        if (colorDistance < 30) {
             applyAdaptiveHudAccent(targetAccent);
             return;
         }
@@ -1054,13 +1058,14 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
 
         ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
         hudColorAnimator = animator;
-        // Preserve the wallpaper-aware fade while avoiding 5 seconds of continuous HUD invalidation.
-        animator.setDuration(1800L);
+        // This is a color-only transition; a shorter bounded fade keeps the adaptation natural
+        // while reducing redraw time between wallpaper changes.
+        animator.setDuration(900L);
         animator.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
         animator.addUpdateListener(animation -> {
             float fraction = (float) animation.getAnimatedValue();
             long now = android.os.SystemClock.uptimeMillis();
-            if (fraction < 1f && now - lastHudAccentFrameAtMs < 33L) return;
+            if (fraction < 1f && now - lastHudAccentFrameAtMs < 50L) return;
             lastHudAccentFrameAtMs = now;
 
             hudAnimationFrameHsv[0] = (hudAnimationStartHsv[0] + fraction * targetHueDelta + 360f) % 360f;
