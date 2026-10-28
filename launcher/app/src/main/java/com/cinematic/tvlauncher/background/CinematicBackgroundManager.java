@@ -53,10 +53,12 @@ public class CinematicBackgroundManager {
     private final Runnable rotationRunnable = new Runnable() {
         @Override
         public void run() {
-            if (!isVisible) return;
+            if (!isVisible || destroyed || queue.isEmpty()) return;
             rotateToNext();
-            // Reschedule after rotation interval (default 10s)
-            mainHandler.postDelayed(this, config.getRotationIntervalSec() * 1000L);
+            // Keep rotation event-driven: do not wake the main looper when no wallpapers exist.
+            if (isVisible && !destroyed && !queue.isEmpty()) {
+                mainHandler.postDelayed(this, config.getRotationIntervalSec() * 1000L);
+            }
         }
     };
 
@@ -89,6 +91,14 @@ public class CinematicBackgroundManager {
         if (backgroundChangedListener != null) backgroundChangedListener.run();
     }
 
+    /** Arms the next rotation only while visible and only when a real wallpaper is available. */
+    private void scheduleRotationIfAvailable() {
+        mainHandler.removeCallbacks(rotationRunnable);
+        if (isVisible && !destroyed && !queue.isEmpty()) {
+            mainHandler.postDelayed(rotationRunnable, config.getRotationIntervalSec() * 1000L);
+        }
+    }
+
     public void loadLocalBackgrounds() {
         if (destroyed) return;
         try {
@@ -114,8 +124,9 @@ public class CinematicBackgroundManager {
                 if (destroyed || Thread.currentThread().isInterrupted()) return;
                 queue.setImages(images);
                 Log.i(TAG, "Loaded " + images.size() + " local background images");
-                // Do not force a wallpaper swap when returning from a dialog or Settings.
-                // Scheduled rotation and explicit background changes use the crossfade path.
+                // Start the timer only when there is work to do and never rotate on the
+                // resume frame. This avoids an unnecessary wakeup/repaint when no photos exist.
+                mainHandler.post(this::scheduleRotationIfAvailable);
             } catch (Exception e) {
                 Log.w(TAG, "Error discovering local background photos", e);
             }
@@ -136,9 +147,8 @@ public class CinematicBackgroundManager {
         if (destroyed) return;
         isVisible = true;
         workGeneration.incrementAndGet();
-        // Trigger initial rotation or check
-        mainHandler.removeCallbacks(rotationRunnable);
-        mainHandler.post(rotationRunnable);
+        // Resume from the static frame; rotate on schedule rather than immediately repainting.
+        scheduleRotationIfAvailable();
 
         if (config.isMotionEnabled()) {
             startSubtleMotion();
