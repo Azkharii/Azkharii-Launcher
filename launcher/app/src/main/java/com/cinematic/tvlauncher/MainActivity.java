@@ -1559,6 +1559,11 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         if (controlManager != null) {
             controlManager.onResume();
         }
+        // If this firmware does not expose LauncherApps callbacks, refresh metadata on resume
+        // so installs/removals made while another app was foreground are still discovered.
+        if (!launcherAppsCallbackRegistered && discoveryManager != null) {
+            discoveryManager.invalidateInstalledAppsCache();
+        }
         loadApps();
         refreshContinueWatchingWheel();
         if (weatherWidgetManager != null) weatherWidgetManager.refreshIfAllowed();
