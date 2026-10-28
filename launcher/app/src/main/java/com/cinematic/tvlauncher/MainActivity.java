@@ -126,6 +126,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private LauncherApps launcherApps;
     private boolean launcherAppsCallbackRegistered;
     private boolean activityResumed;
+    private final Handler lifecycleHandler = new Handler(Looper.getMainLooper());
 
     private final Runnable packageRefreshRunnable = () -> {
         if (!activityResumed || isFinishing() || isDestroyed() || discoveryManager == null) return;
