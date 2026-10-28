@@ -216,3 +216,12 @@ The automatic update path remains implemented but is not deployable against the 
 - **Portable test added:** `UpdateCheckPolicyTest` covers initial check, 30-minute successful interval, and bounded retry backoff.
 - **Hosted integrity/tests/build:** PASS on PR #3 commit `b0cbae6d68a4db2177df29ba97c2ee12899b63d4`: [build run 40646687945](https://github.com/Azkharii/Azkharii-Launcher/actions/runs/40646687945) completed successfully, including integrity checks, unit tests, debug APK build and artifact inspection. The release-signing validation/build also passed in [run 40646687935](https://github.com/Azkharii/Azkharii-Launcher/actions/runs/40646687935). The latest head adds a small fallback invalidation plus documentation/cleanup changes; those exact latest-head changes have not been re-run through CI.
 - **Hisense U75K CPU/GPU after-change measurements:** NOT TESTED in this environment. Existing RenderThread/Mali values remain the historical baseline only.
+
+## Aviso OTA compacto y optimización del HUD — 2026-10-28
+
+- **Rama:** `perf/compact-updates-rendering` (validación CI pendiente).
+- **Aviso visible:** se muestra el salto compacto, por ejemplo `1.0.3 → 1.0.4`, sin `versionCode`, hash del commit ni descripción de release completa. Se mantienen tamaño esperado, SHA-256, identidad del paquete, versión de APK y confirmación del instalador Android.
+- **Versionado:** el nombre visible queda como `1.0.N`; el `versionCode` sigue siendo `1000000000 + GITHUB_RUN_NUMBER` y se conserva en el tag `v1.0.N+CODE`. Se ampliaron pruebas para tags nuevos y antiguos.
+- **HUD adaptativo:** la transición de color pasa de 5.2 a 1.8 segundos, limita actualizaciones de propiedades a unas 30 por segundo, reutiliza buffers HSV y omite setters/invalidation cuando el valor visible no cambia.
+- **Pruebas automatizadas/build:** pendientes del workflow de esta rama.
+- **Comparación física de CPU/RAM:** NO REALIZADA después de estos cambios. Los valores RenderThread/Mali previos siguen siendo la referencia informada por el usuario, no un resultado posterior.
