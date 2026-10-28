@@ -20,7 +20,9 @@ import com.cinematic.tvlauncher.config.LauncherConfig;
 
 import java.io.File;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -71,7 +73,8 @@ public class CinematicBackgroundManager {
         this.config = config != null ? config : new LauncherConfig();
         this.queue = new RotationQueue();
         this.mainHandler = new Handler(Looper.getMainLooper());
-        this.decodeExecutor = Executors.newSingleThreadExecutor();
+        this.decodeExecutor = new ThreadPoolExecutor(
+                0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
 
         loadLocalBackgrounds();
     }
