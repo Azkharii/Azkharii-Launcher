@@ -155,8 +155,8 @@ public final class UpdateManager {
                 recordCheckFailure("MISSING_ASSET_OR_DIGEST");
                 Log.w(TAG,"Latest release lacks expected APK asset, size, or SHA-256 digest.");return;
             }
-            UpdateInfo info=new UpdateInfo(release.optString("name",release.optString("tag_name","")),
-                    release.optString("body",""),remote,url,digest.toLowerCase(Locale.ROOT),size);
+            String displayVersion=UpdateVersionPolicy.formatDisplayVersion(release.optString("tag_name",""));
+            UpdateInfo info=new UpdateInfo(displayVersion,remote,url,digest.toLowerCase(Locale.ROOT),size);
             prefs.edit().putString(LAST_STATUS,"UPDATE_AVAILABLE").apply();
             recordCheckSuccess();
             handler.post(()->showUpdateDialog(info));
@@ -175,14 +175,11 @@ public final class UpdateManager {
         if(prefs.getLong(PROMPT_CODE,0L)==info.version
                 &&System.currentTimeMillis()-prefs.getLong(PROMPT_TIME,0L)<REPROMPT)return;
         prefs.edit().putLong(PROMPT_CODE,info.version).putLong(PROMPT_TIME,System.currentTimeMillis()).apply();
-        String notes=info.notes==null?"":info.notes.trim();
-        if(notes.length()>500)notes=notes.substring(0,500)+"…";
-        String text="Instalada: "+BuildConfig.VERSION_NAME+" ("+BuildConfig.VERSION_CODE+")"
-                +"\nDisponible: "+info.name+" ("+info.version+")"
-                +(notes.isEmpty()?"":"\n\n"+notes)
-                +"\n\nSe verificará el APK antes de abrir el instalador de Android. La instalación requiere tu aprobación.";
-        new AlertDialog.Builder(activity).setTitle("Actualización de Cinematic TV").setMessage(text)
-                .setPositiveButton("Descargar e instalar",(dialog,which)->download(info))
+        String installedVersion=UpdateVersionPolicy.formatDisplayVersion(BuildConfig.VERSION_NAME);
+        String text=installedVersion+" → "+info.displayVersion
+                +"\n\nSe verificará el APK antes de abrir el instalador.";
+        new AlertDialog.Builder(activity).setTitle("Actualizar Cinematic TV").setMessage(text)
+                .setPositiveButton("Actualizar",(dialog,which)->download(info))
                 .setNegativeButton("Después",null).show();
     }
 
@@ -286,9 +283,9 @@ public final class UpdateManager {
         return out.toString();
     }
     private static final class UpdateInfo{
-        final String name,notes,url,sha256;final long version,size;
-        UpdateInfo(String name,String notes,long version,String url,String sha256,long size){
-            this.name=name;this.notes=notes;this.version=version;this.url=url;this.sha256=sha256;this.size=size;
+        final String displayVersion,url,sha256;final long version,size;
+        UpdateInfo(String displayVersion,long version,String url,String sha256,long size){
+            this.displayVersion=displayVersion;this.version=version;this.url=url;this.sha256=sha256;this.size=size;
         }
     }
 }
