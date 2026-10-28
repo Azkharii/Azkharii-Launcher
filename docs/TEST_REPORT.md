@@ -225,3 +225,13 @@ The automatic update path remains implemented but is not deployable against the 
 - **HUD adaptativo:** la transición de color pasa de 5.2 a 1.8 segundos, limita actualizaciones de propiedades a unas 30 por segundo, reutiliza buffers HSV y omite setters/invalidation cuando el valor visible no cambia.
 - **Pruebas automatizadas/build:** pendientes del workflow de esta rama.
 - **Comparación física de CPU/RAM:** NO REALIZADA después de estos cambios. Los valores RenderThread/Mali previos siguen siendo la referencia informada por el usuario, no un resultado posterior.
+
+
+## Deep idle rendering pass — 2026-10-28
+
+- **Change set:** PR #5, `perf/deep-idle-render-optimization`.
+- **Unit tests / debug APK:** GitHub Actions completed successfully for interim head `4d66a161db04a015633396a2f3bcfba730f383c9` ([build run 40656252782](https://github.com/Azkharii/Azkharii-Launcher/actions/runs/40656252782)). That run predates the subsequent idle-worker expiry edits; it is not evidence that the final revision has passed.
+- **Final revision:** the build and signing-validation workflows were triggered again for the later source changes. Final workflow status remains pending/in progress at the time of this entry; no final PASS is claimed here.
+- **Physical Hisense CPU/RAM comparison:** NOT TESTED after these changes. The user's latest reference remains a short rendering burst (RenderThread 77.4%, Mali backend 29.0%) followed by sleeping threads; it is not a before/after result.
+- **Visual and interaction regression checks:** NOT TESTED on the physical TV. Focus movement, the adaptive glow, wallpaper timing, and Continue Watching must be checked on-device after the final APK builds.
+- **Resource deletion:** no production code, UI component, or drawable was deleted because the inspected source did not establish any as unused. Changes instead eliminate redundant invalidations and idle worker residency.
