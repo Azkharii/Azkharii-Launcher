@@ -4,7 +4,6 @@ import android.animation.Animator;
 import android.animation.AnimatorSet;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
-import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -19,6 +18,10 @@ import android.widget.ImageView;
 import com.cinematic.tvlauncher.config.LauncherConfig;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -45,12 +48,11 @@ public class CinematicBackgroundManager {
     private volatile boolean isVisible = false;
     private volatile boolean destroyed = false;
     private boolean isFrontA = true;
-    private ValueAnimator motionAnimator = null;
     private AnimatorSet crossfadeAnimator;
     private Future<?> pendingDecode;
     private final AtomicLong workGeneration = new AtomicLong();
-    private boolean crossfadeInProgress = false;
     private boolean hasRealWallpaperLoaded = false;
+    private File currentWallpaperFile;
     private Runnable backgroundChangedListener;
 
     private final Runnable rotationRunnable = new Runnable() {
@@ -111,20 +113,16 @@ public class CinematicBackgroundManager {
             decodeExecutor.execute(() -> {
             try {
                 java.util.List<File> images = new java.util.ArrayList<>();
-                File picturesDir = activity.getExternalFilesDir("CinematicBackgrounds");
-                if (picturesDir != null && picturesDir.exists()) {
-                    File[] files = picturesDir.listFiles();
-                    if (files != null) {
-                        for (File file : files) if (isSupportedImage(file)) images.add(file);
-                    }
-                }
+                File privatePictures = new File(activity.getFilesDir(), "CinematicBackgrounds");
+                addImagesFromDirectory(privatePictures, images);
+
+                // Continue honoring wallpapers imported by previous versions.
+                File legacyPictures = activity.getExternalFilesDir("CinematicBackgrounds");
+                addImagesFromDirectory(legacyPictures, images);
 
                 File publicPictures = new File("/sdcard/Pictures/CinematicLauncher");
                 if (publicPictures.exists() && publicPictures.isDirectory()) {
-                    File[] files = publicPictures.listFiles();
-                    if (files != null) {
-                        for (File file : files) if (isSupportedImage(file) && !images.contains(file)) images.add(file);
-                    }
+                    addImagesFromDirectory(publicPictures, images);
                 }
 
                 if (destroyed || Thread.currentThread().isInterrupted()) return;
@@ -148,11 +146,80 @@ public class CinematicBackgroundManager {
         }
     }
 
+    private void addImagesFromDirectory(File directory, List<File> images) {
+        if (directory == null || !directory.isDirectory()) return;
+        File[] files = directory.listFiles();
+        if (files == null) return;
+        for (File file : files) {
+            if (isSupportedImage(file) && !images.contains(file)) images.add(file);
+        }
+    }
+
     private boolean isSupportedImage(File file) {
         if (file == null || !file.isFile()) return false;
         String name = file.getName().toLowerCase(java.util.Locale.ROOT);
-        return name.endsWith(".jpg") || name.endsWith(".jpeg") ||
-                name.endsWith(".png") || name.endsWith(".webp");
+        return name.endsWith(".jpg") || name.endsWith(".jpeg")
+                || name.endsWith(".png") || name.endsWith(".webp");
+    }
+
+    /** Lists only app-imported wallpapers, excluding arbitrary files in public Pictures. */
+    public List<File> getManagedBackgrounds() {
+        List<File> files = new ArrayList<>();
+        addImagesFromDirectory(new File(activity.getFilesDir(), "CinematicBackgrounds"), files);
+        addImagesFromDirectory(activity.getExternalFilesDir("CinematicBackgrounds"), files);
+        Collections.sort(files, Comparator.comparingLong(File::lastModified).reversed());
+        return files;
+    }
+
+    public File getCurrentWallpaperFile() {
+        return currentWallpaperFile;
+    }
+
+    /** Starts a worker decode and crossfades to an explicitly selected app-managed photo. */
+    public boolean showWallpaper(File file) {
+        if (file == null || !isSupportedImage(file) || destroyed || !isVisible) return false;
+        mainHandler.removeCallbacks(rotationRunnable);
+        if (pendingDecode != null) pendingDecode.cancel(true);
+        if (crossfadeAnimator != null) {
+            crossfadeAnimator.cancel();
+            crossfadeAnimator = null;
+        }
+        long generation = workGeneration.incrementAndGet();
+        try {
+            pendingDecode = decodeExecutor.submit(() -> {
+                Bitmap bitmap = decodeSampledBitmap(file);
+                if (bitmap == null) return;
+                if (Thread.currentThread().isInterrupted() || destroyed || !isVisible
+                        || generation != workGeneration.get()) {
+                    bitmap.recycle();
+                    return;
+                }
+                mainHandler.post(() -> {
+                    if (destroyed || !isVisible || generation != workGeneration.get()) bitmap.recycle();
+                    else applyCrossfade(bitmap, file);
+                });
+            });
+            return true;
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            return false;
+        }
+    }
+
+    /** Deletes only files inside the app's private or legacy app-specific wallpaper folders. */
+    public boolean deleteManagedBackground(File file) {
+        if (file == null || !isSupportedImage(file)) return false;
+        try {
+            File canonicalFile = file.getCanonicalFile();
+            File privateDir = new File(activity.getFilesDir(), "CinematicBackgrounds").getCanonicalFile();
+            File legacy = activity.getExternalFilesDir("CinematicBackgrounds");
+            File parent = canonicalFile.getParentFile();
+            boolean managed = parent != null && (parent.equals(privateDir)
+                    || (legacy != null && parent.equals(legacy.getCanonicalFile())));
+            return managed && canonicalFile.isFile() && canonicalFile.delete();
+        } catch (Exception e) {
+            Log.w(TAG, "Could not delete managed wallpaper", e);
+            return false;
+        }
     }
 
     public void onResume() {
@@ -167,9 +234,6 @@ public class CinematicBackgroundManager {
             scheduleRotationIfAvailable();
         }
 
-        if (config.isMotionEnabled()) {
-            startSubtleMotion();
-        }
     }
 
     public void onPause() {
@@ -182,10 +246,6 @@ public class CinematicBackgroundManager {
         }
         if (crossfadeAnimator != null) crossfadeAnimator.cancel();
 
-        if (motionAnimator != null) {
-            motionAnimator.cancel();
-            motionAnimator = null;
-        }
     }
 
     public void onDestroy() {
@@ -218,7 +278,7 @@ public class CinematicBackgroundManager {
                 }
                 mainHandler.post(() -> {
                     if (!isVisible || destroyed || generation != workGeneration.get()) bitmap.recycle();
-                    else applyCrossfade(bitmap);
+                    else applyCrossfade(bitmap, nextFile);
                 });
             });
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
@@ -226,7 +286,7 @@ public class CinematicBackgroundManager {
         }
     }
 
-    private void applyCrossfade(Bitmap newBitmap) {
+    private void applyCrossfade(Bitmap newBitmap, File sourceFile) {
         if (!isVisible || destroyed || activity.isFinishing() || activity.isDestroyed()) {
             newBitmap.recycle();
             return;
@@ -234,7 +294,7 @@ public class CinematicBackgroundManager {
 
         final ImageView front = isFrontA ? imageViewA : imageViewB;
         final ImageView back = isFrontA ? imageViewB : imageViewA;
-        crossfadeInProgress = true;
+        currentWallpaperFile = sourceFile;
         back.setScaleX(front.getScaleX());
         back.setScaleY(front.getScaleY());
 
@@ -262,7 +322,6 @@ public class CinematicBackgroundManager {
                 front.setScaleY(1f);
                 isFrontA = !isFrontA;
                 hasRealWallpaperLoaded = true;
-                crossfadeInProgress = false;
                 scheduleRotationIfAvailable();
                 if (crossfadeAnimator == crossfade) crossfadeAnimator = null;
                 if (isVisible && !destroyed) notifyBackgroundChanged();
@@ -270,37 +329,6 @@ public class CinematicBackgroundManager {
         });
         crossfadeAnimator = crossfade;
         crossfade.start();
-    }
-
-    /**
-     * Subtle slow scale 1.00 -> 1.06 ping-pong motion over ~40s (Annex C.3).
-     * Lightweight ValueAnimator on hardware layer.
-     */
-    private void startSubtleMotion() {
-        if (motionAnimator != null) {
-            motionAnimator.cancel();
-        }
-
-        motionAnimator = ValueAnimator.ofFloat(1.00f, 1.035f);
-        motionAnimator.setDuration(config.getMotionDurationSec() * 1000L);
-        motionAnimator.setRepeatMode(ValueAnimator.REVERSE);
-        motionAnimator.setRepeatCount(ValueAnimator.INFINITE);
-        motionAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
-
-        motionAnimator.addUpdateListener(animation -> {
-            float scale = (float) animation.getAnimatedValue();
-            if (isVisible) {
-                ImageView front = isFrontA ? imageViewA : imageViewB;
-                front.setScaleX(scale);
-                front.setScaleY(scale);
-                if (crossfadeInProgress) {
-                    ImageView back = isFrontA ? imageViewB : imageViewA;
-                    back.setScaleX(scale);
-                    back.setScaleY(scale);
-                }
-            }
-        });
-        motionAnimator.start();
     }
 
     /**
