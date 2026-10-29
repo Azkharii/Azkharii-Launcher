@@ -20,6 +20,7 @@ import com.cinematic.tvlauncher.R;
 import com.cinematic.tvlauncher.config.LauncherConfig;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -30,6 +31,8 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
 
 /**
  * CinematicBackgroundManager — Controls Google Photos background rotation,
@@ -38,6 +41,8 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class CinematicBackgroundManager {
     private static final String TAG = "CinematicBackgroundMgr";
+    private static final String WALLPAPER_PREVIEW_CACHE_DIR = "wallpaper-preview-v1";
+    private static final long MAX_WALLPAPER_PREVIEW_CACHE_BYTES = 32L * 1024L * 1024L;
 
     private final Activity activity;
     private final ImageView imageViewA;
@@ -216,9 +221,12 @@ public class CinematicBackgroundManager {
                     return;
                 }
                 mainHandler.post(() -> {
-                    if (destroyed || !isVisible || generation != workGeneration.get()) bitmap.recycle();
-                    else applyCrossfade(bitmap, file);
+                    if (!destroyed && isVisible && generation == workGeneration.get()) {
+                        applyCrossfade(bitmap, file);
+                    }
+                    // The worker may still encode the first-use derivative; let GC reclaim stale bitmaps.
                 });
+                cacheWallpaperPreviewIfNeeded(file, bitmap);
             });
             return true;
         } catch (java.util.concurrent.RejectedExecutionException e) {
@@ -242,7 +250,10 @@ public class CinematicBackgroundManager {
             if (currentWallpaperFile != null) {
                 deletingCurrent = canonicalFile.equals(currentWallpaperFile.getCanonicalFile());
             }
+            File previewCache = wallpaperPreviewCacheFile(canonicalFile,
+                    wallpaperTargetWidth(), wallpaperTargetHeight());
             if (!canonicalFile.delete()) return false;
+            if (previewCache != null) previewCache.delete();
             queue.removeImage(file);
 
             if (deletingCurrent) {
@@ -334,9 +345,12 @@ public class CinematicBackgroundManager {
                     return;
                 }
                 mainHandler.post(() -> {
-                    if (!isVisible || destroyed || generation != workGeneration.get()) bitmap.recycle();
-                    else applyCrossfade(bitmap, nextFile);
+                    if (isVisible && !destroyed && generation == workGeneration.get()) {
+                        applyCrossfade(bitmap, nextFile);
+                    }
+                    // The worker may still encode the first-use derivative; let GC reclaim stale bitmaps.
                 });
+                cacheWallpaperPreviewIfNeeded(nextFile, bitmap);
             });
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
             // The launcher is shutting down; no background work should be restarted.
@@ -398,12 +412,106 @@ public class CinematicBackgroundManager {
      * multi-megapixel camera image in each fullscreen ImageView. For API 28+, ImageDecoder can
      * resize during decode, avoiding a large intermediate bitmap and a second scaled copy.
      */
+    private int wallpaperTargetWidth() {
+        DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
+        return metrics.widthPixels > 0 ? metrics.widthPixels : 1920;
+    }
+
+    private int wallpaperTargetHeight() {
+        DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
+        return metrics.heightPixels > 0 ? metrics.heightPixels : 1080;
+    }
+
+    private File wallpaperPreviewCacheFile(File source, int targetWidth, int targetHeight) {
+        if (source == null) return null;
+        try {
+            File cacheDirectory = new File(activity.getCacheDir(), WALLPAPER_PREVIEW_CACHE_DIR);
+            String identity = source.getCanonicalPath() + "|" + source.length() + "|"
+                    + source.lastModified() + "|" + targetWidth + "x" + targetHeight + "|v1";
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(identity.getBytes(StandardCharsets.UTF_8));
+            StringBuilder key = new StringBuilder(digest.length * 2);
+            for (byte value : digest) {
+                key.append(String.format(java.util.Locale.ROOT, "%02x", value & 0xff));
+            }
+            return new File(cacheDirectory, key + ".jpg");
+        } catch (Exception e) {
+            Log.w(TAG, "Could not identify wallpaper preview cache entry", e);
+            return null;
+        }
+    }
+
+    private Bitmap decodeCachedWallpaperPreview(File previewFile) {
+        if (previewFile == null || !previewFile.isFile() || previewFile.length() <= 0) return null;
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inPreferredConfig = Bitmap.Config.RGB_565;
+        options.inDither = true;
+        Bitmap cached = BitmapFactory.decodeFile(previewFile.getAbsolutePath(), options);
+        if (cached != null) previewFile.setLastModified(System.currentTimeMillis());
+        return cached;
+    }
+
+    /**
+     * Writes a device-sized derivative after the first image is already queued for display.
+     * Later rotations skip repeatedly decoding a full-resolution camera image. The source
+     * fingerprint changes if its path, size, timestamp or viewport changes. Alpha-bearing images
+     * bypass JPEG caching to preserve transparency.
+     */
+    private void cacheWallpaperPreviewIfNeeded(File source, Bitmap bitmap) {
+        if (source == null || bitmap == null || bitmap.hasAlpha()
+                || Thread.currentThread().isInterrupted() || destroyed) return;
+        File previewFile = wallpaperPreviewCacheFile(
+                source, wallpaperTargetWidth(), wallpaperTargetHeight());
+        if (previewFile == null || previewFile.isFile()) return;
+        File directory = previewFile.getParentFile();
+        if (directory == null || (!directory.isDirectory() && !directory.mkdirs())) return;
+        File temporaryFile = new File(directory, previewFile.getName() + ".tmp");
+        try (FileOutputStream output = new FileOutputStream(temporaryFile)) {
+            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 91, output)) {
+                temporaryFile.delete();
+                return;
+            }
+            output.flush();
+        } catch (Exception e) {
+            temporaryFile.delete();
+            Log.w(TAG, "Could not persist reduced wallpaper preview", e);
+            return;
+        }
+        if (temporaryFile.length() <= 0 || !temporaryFile.renameTo(previewFile)) {
+            temporaryFile.delete();
+            return;
+        }
+        pruneWallpaperPreviewCache(directory);
+    }
+
+    private void pruneWallpaperPreviewCache(File directory) {
+        File[] previews = directory.listFiles((dir, name) ->
+                name.endsWith(".jpg") && new File(dir, name).isFile());
+        if (previews == null || previews.length == 0) return;
+        long totalBytes = 0L;
+        for (File preview : previews) totalBytes += preview.length();
+        if (totalBytes <= MAX_WALLPAPER_PREVIEW_CACHE_BYTES) return;
+        java.util.Arrays.sort(previews, Comparator.comparingLong(File::lastModified));
+        for (File preview : previews) {
+            if (totalBytes <= MAX_WALLPAPER_PREVIEW_CACHE_BYTES) break;
+            long length = preview.length();
+            if (preview.delete()) totalBytes -= length;
+        }
+    }
+
+    /**
+     * Decode close to the TV viewport. Reuse a validated on-disk derivative after first display;
+     * otherwise resize during decode on API 28+, with a sampled BitmapFactory fallback on API 26–27.
+     */
     private Bitmap decodeSampledBitmap(File file) {
         try {
             if (Thread.currentThread().isInterrupted() || destroyed) return null;
-            DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
-            int reqWidth = metrics.widthPixels > 0 ? metrics.widthPixels : 1920;
-            int reqHeight = metrics.heightPixels > 0 ? metrics.heightPixels : 1080;
+            int reqWidth = wallpaperTargetWidth();
+            int reqHeight = wallpaperTargetHeight();
+            File previewFile = wallpaperPreviewCacheFile(file, reqWidth, reqHeight);
+            Bitmap cached = decodeCachedWallpaperPreview(previewFile);
+            if (cached != null) return cached;
+            if (previewFile != null && previewFile.exists()) previewFile.delete();
 
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                 ImageDecoder.Source source = ImageDecoder.createSource(file);
@@ -414,8 +522,6 @@ public class CinematicBackgroundManager {
                     }
                     int sourceWidth = Math.max(1, info.getSize().getWidth());
                     int sourceHeight = Math.max(1, info.getSize().getHeight());
-                    // Keep the original aspect ratio and decode only the smallest image that
-                    // can fill the screen's center-cropped viewport without upscaling.
                     double scale = Math.max(reqWidth / (double) sourceWidth,
                             reqHeight / (double) sourceHeight);
                     scale = Math.min(1d, scale);
@@ -427,7 +533,6 @@ public class CinematicBackgroundManager {
                 });
             }
 
-            // Android 8.x fallback: keep the existing power-of-two downsampling path.
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inJustDecodeBounds = true;
             BitmapFactory.decodeFile(file.getAbsolutePath(), options);
