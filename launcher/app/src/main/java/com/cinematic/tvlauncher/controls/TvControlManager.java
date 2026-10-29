@@ -369,8 +369,26 @@ public class TvControlManager {
             ImageView preview = new ImageView(activity);
             preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
             preview.setContentDescription("Vista previa del fondo");
-            Bitmap previewBitmap = decodeBackgroundThumbnail(file);
-            if (previewBitmap != null) preview.setImageBitmap(previewBitmap);
+            String thumbnailPath = file.getAbsolutePath();
+            preview.setTag(thumbnailPath);
+            // Keep all thumbnail file I/O and pixel decoding off the UI thread.
+            try {
+                BACKGROUND_IMPORT_EXECUTOR.execute(() -> {
+                    Bitmap previewBitmap = decodeBackgroundThumbnail(file);
+                    if (previewBitmap == null) return;
+                    activity.runOnUiThread(() -> {
+                        if (activity.isFinishing() || activity.isDestroyed()
+                                || preview.getParent() == null
+                                || !thumbnailPath.equals(preview.getTag())) {
+                            previewBitmap.recycle();
+                            return;
+                        }
+                        preview.setImageBitmap(previewBitmap);
+                    });
+                });
+            } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                // The manager is shutting down; the empty thumbnail frame remains harmless.
+            }
             FrameLayout.LayoutParams previewImageParams = new FrameLayout.LayoutParams(-1, -1);
             previewImageParams.setMargins(dp(2), dp(2), dp(2), dp(2));
             previewFrame.addView(preview, previewImageParams);
