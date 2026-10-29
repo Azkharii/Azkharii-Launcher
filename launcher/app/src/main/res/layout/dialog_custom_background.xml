@@ -3,10 +3,10 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingStart="28dp"
-    android:paddingEnd="28dp"
-    android:paddingTop="26dp"
-    android:paddingBottom="24dp"
+    android:paddingStart="20dp"
+    android:paddingEnd="20dp"
+    android:paddingTop="18dp"
+    android:paddingBottom="16dp"
     android:background="@drawable/liquid_glass_dialog_bg">
 
     <TextView
@@ -14,7 +14,7 @@
         android:layout_height="wrap_content"
         android:text="@string/custom_background_title"
         android:textColor="@color/text_primary"
-        android:textSize="27sp"
+        android:textSize="22sp"
         android:fontFamily="sans-serif-light"
         android:shadowColor="#70000000"
         android:shadowDx="0"
@@ -24,17 +24,17 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:layout_marginBottom="24dp"
+        android:layout_marginTop="7dp"
+        android:layout_marginBottom="14dp"
         android:text="@string/custom_background_description"
         android:textColor="@color/text_secondary"
-        android:textSize="16sp"
-        android:lineSpacingExtra="3dp" />
+        android:textSize="14sp"
+        android:lineSpacingExtra="2dp" />
 
     <TextView
         android:id="@+id/btn_choose_backgrounds"
         android:layout_width="match_parent"
-        android:layout_height="52dp"
+        android:layout_height="42dp"
         android:gravity="center"
         android:background="@drawable/liquid_glass_action_bg"
         android:focusable="true"
@@ -48,8 +48,8 @@
     <TextView
         android:id="@+id/btn_manage_backgrounds"
         android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:layout_marginTop="8dp"
+        android:layout_height="40dp"
+        android:layout_marginTop="5dp"
         android:gravity="center"
         android:background="@drawable/liquid_glass_action_bg"
         android:focusable="true"
@@ -58,12 +58,12 @@
         android:nextFocusDown="@id/btn_cancel_backgrounds"
         android:text="@string/custom_background_manage"
         android:textColor="@color/text_primary"
-        android:textSize="15sp" />
+        android:textSize="14sp" />
 
     <TextView
         android:id="@+id/btn_cancel_backgrounds"
         android:layout_width="match_parent"
-        android:layout_height="46dp"
+        android:layout_height="36dp"
         android:layout_marginTop="8dp"
         android:gravity="center"
         android:background="@drawable/liquid_glass_action_bg"
