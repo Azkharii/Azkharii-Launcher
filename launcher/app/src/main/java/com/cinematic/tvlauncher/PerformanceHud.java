@@ -2,7 +2,7 @@ package com.cinematic.tvlauncher;
 
 import android.app.Activity;
 import android.graphics.Color;
-import android.graphics.Debug;
+import android.os.Debug;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
