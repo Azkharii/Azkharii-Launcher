@@ -21,6 +21,7 @@ This pattern points to sustained rendering/composition work, not proof of a pack
 - The unused wallpaper zoom animation, animator state, configuration fields, and resource entries have been removed completely. Wallpaper rotation and crossfade remain.
 - OTA checks are user-initiated through the unframed arrow to the left of Entradas; periodic checks and clock-based retry timers have been removed. Manual checking also works in debug builds to open the release page, but a debug APK is never offered as an in-place stable update.
 - The release checker falls back to the release's `.sha256` sidecar when GitHub's APK asset metadata omits `digest`. It does not download/install an update without a valid SHA-256.
+- Physical Search/Assist handling tries Android's `ACTION_ASSIST`, then `ACTION_VOICE_COMMAND`; the firmware's actual remote key mapping still needs a real-TV check.
 - Imported wallpaper selections are copied to app-private storage on a worker thread. The photo dialog now opens a managed library with current wallpaper, Use, and Delete actions. Deleting the active wallpaper restores a valid default image before the remaining collection is refreshed.
 - Main carousel movement now updates only the previous/new visible card ranges and reuses animation buffers. This removes the all-installed-app scan and per-move array allocations from each D-pad step; animation/glow effects remain.
 - The previous active zoom-enable bullets and old scheduler-policy tests are superseded by the removal above.
