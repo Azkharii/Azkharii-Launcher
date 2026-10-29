@@ -278,13 +278,13 @@ public class TvControlManager {
         Dialog dialog = new Dialog(activity);
         android.widget.LinearLayout content = new android.widget.LinearLayout(activity);
         content.setOrientation(android.widget.LinearLayout.VERTICAL);
-        content.setPadding(dp(28), dp(22), dp(28), dp(22));
+        content.setPadding(dp(18), dp(14), dp(18), dp(14));
         content.setBackgroundResource(R.drawable.liquid_glass_dialog_bg);
 
         TextView title = new TextView(activity);
         title.setText("MIS FONDOS");
         title.setTextColor(android.graphics.Color.WHITE);
-        title.setTextSize(19);
+        title.setTextSize(17);
         title.setIncludeFontPadding(false);
         title.setPadding(dp(6), dp(4), dp(6), dp(8));
         title.setTypeface(android.graphics.Typeface.create(
@@ -296,7 +296,7 @@ public class TvControlManager {
         android.widget.LinearLayout list = new android.widget.LinearLayout(activity);
         list.setOrientation(android.widget.LinearLayout.VERTICAL);
         scroll.addView(list, new android.widget.ScrollView.LayoutParams(-1, -2));
-        content.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1, dp(260)));
+        content.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1, dp(210)));
 
         TextView close = new TextView(activity);
         close.setText("CERRAR");
@@ -307,8 +307,8 @@ public class TvControlManager {
         close.setClickable(true);
         close.setBackgroundResource(R.drawable.liquid_glass_action_bg);
         android.widget.LinearLayout.LayoutParams closeParams =
-                new android.widget.LinearLayout.LayoutParams(-1, dp(44));
-        closeParams.topMargin = dp(10);
+                new android.widget.LinearLayout.LayoutParams(-1, dp(36));
+        closeParams.topMargin = dp(7);
         content.addView(close, closeParams);
         close.setOnClickListener(v -> dialog.dismiss());
 
@@ -320,8 +320,8 @@ public class TvControlManager {
             window.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams attributes = window.getAttributes();
-            attributes.width = Math.min(dp(560),
-                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.82f));
+            attributes.width = Math.min(dp(480),
+                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.74f));
             attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
             attributes.dimAmount = 0.22f;
             window.setAttributes(attributes);
@@ -330,8 +330,8 @@ public class TvControlManager {
         dialog.show();
         if (window != null) {
             WindowManager.LayoutParams attributes = window.getAttributes();
-            attributes.width = Math.min(dp(560),
-                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.82f));
+            attributes.width = Math.min(dp(480),
+                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.74f));
             attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
             window.setAttributes(attributes);
         }
@@ -393,8 +393,8 @@ public class TvControlManager {
             previewImageParams.setMargins(dp(2), dp(2), dp(2), dp(2));
             previewFrame.addView(preview, previewImageParams);
             android.widget.LinearLayout.LayoutParams previewParams =
-                    new android.widget.LinearLayout.LayoutParams(dp(72), dp(44));
-            previewParams.setMargins(dp(2), 0, dp(8), 0);
+                    new android.widget.LinearLayout.LayoutParams(dp(60), dp(36));
+            previewParams.setMargins(dp(2), 0, dp(6), 0);
             row.addView(previewFrame, previewParams);
 
             TextView use = new TextView(activity);
@@ -446,7 +446,7 @@ public class TvControlManager {
                         }
                     }).show());
 
-            list.addView(row, new android.widget.LinearLayout.LayoutParams(-1, dp(54)));
+            list.addView(row, new android.widget.LinearLayout.LayoutParams(-1, dp(44)));
         }
     }
 
@@ -461,8 +461,8 @@ public class TvControlManager {
             BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
 
-            int targetWidth = Math.max(1, dp(72) * 2);
-            int targetHeight = Math.max(1, dp(44) * 2);
+            int targetWidth = Math.max(1, dp(60) * 2);
+            int targetHeight = Math.max(1, dp(36) * 2);
             int sampleSize = 1;
             while (bounds.outWidth / (sampleSize * 2) >= targetWidth
                     && bounds.outHeight / (sampleSize * 2) >= targetHeight) {
