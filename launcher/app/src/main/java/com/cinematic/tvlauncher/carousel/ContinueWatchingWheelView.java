@@ -72,8 +72,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         ARTWORK_EXECUTOR.allowCoreThreadTimeOut(true);
     }
     private static final int MAX_ARTWORK_SOURCE_BYTES = 6 * 1024 * 1024;
-    // Keep recently used poster bitmaps in memory so D-pad navigation never re-downloads/re-decodes them.
-    private static final LruCache<String, Bitmap> ARTWORK_CACHE = new LruCache<String, Bitmap>(12 * 1024) {
+    // Bound poster bitmap retention; 8 MiB still covers the visible wheel without holding a large artwork history.
+    private static final LruCache<String, Bitmap> ARTWORK_CACHE = new LruCache<String, Bitmap>(8 * 1024) {
         @Override protected int sizeOf(String key, Bitmap bitmap) {
             return Math.max(1, bitmap.getByteCount() / 1024);
         }
