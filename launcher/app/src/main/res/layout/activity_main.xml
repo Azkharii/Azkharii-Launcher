@@ -154,8 +154,8 @@
 
             <FrameLayout
                 android:id="@+id/btn_inputs"
-                android:layout_width="48dp"
-                android:layout_height="34dp"
+                android:layout_width="@dimen/control_button_size"
+                android:layout_height="@dimen/control_button_size"
                 android:layout_marginEnd="4dp"
                 android:background="@drawable/control_button_bg"
                 android:focusable="true"
@@ -237,8 +237,8 @@
             </FrameLayout>
             <FrameLayout
                 android:id="@+id/btn_photos"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="@dimen/control_button_size"
+                android:layout_height="@dimen/control_button_size"
                 android:layout_marginStart="4dp"
                 android:background="@drawable/control_button_bg"
                 android:focusable="true"
@@ -255,7 +255,7 @@
                     android:paddingStart="1dp"
                     android:paddingEnd="1dp"
                     android:text="FOTOS"
-                    android:textSize="7sp"
+                    android:textSize="8sp"
                     android:maxLines="1"
                     android:singleLine="true"
                     android:ellipsize="end"
