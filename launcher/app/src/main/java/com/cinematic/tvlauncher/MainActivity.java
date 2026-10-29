@@ -1316,9 +1316,10 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             Canvas canvas = new Canvas(bitmap);
             drawable.setBounds(0, 0, 24, 24);
             drawable.draw(canvas);
+            int[] pixels = new int[24 * 24];
+            bitmap.getPixels(pixels, 0, 24, 0, 0, 24, 24);
             long red = 0, green = 0, blue = 0, count = 0;
-            for (int y = 0; y < 24; y++) for (int x = 0; x < 24; x++) {
-                int pixel = bitmap.getPixel(x, y);
+            for (int pixel : pixels) {
                 if (android.graphics.Color.alpha(pixel) < 96) continue;
                 int r = android.graphics.Color.red(pixel), g = android.graphics.Color.green(pixel), b = android.graphics.Color.blue(pixel);
                 int max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b));

@@ -630,10 +630,12 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         final int stepX = Math.max(1, width / 90);
         final int stepY = Math.max(1, height / 54);
         int fallback = DEFAULT_ACCENT;
+        int[] rowPixels = new int[width];
         long allRed = 0, allGreen = 0, allBlue = 0, allCount = 0;
         for (int y = 0; y < height; y += stepY) {
+            bitmap.getPixels(rowPixels, 0, width, 0, y, width, 1);
             for (int x = 0; x < width; x += stepX) {
-                int pixel = bitmap.getPixel(x, y);
+                int pixel = rowPixels[x];
                 if (Color.alpha(pixel) < 128) continue;
                 int r = Color.red(pixel), g = Color.green(pixel), b = Color.blue(pixel);
                 if (Math.max(r, Math.max(g, b)) < 20) continue;
@@ -663,8 +665,9 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             int[] zone = zones[i];
             long red = 0, green = 0, blue = 0, count = 0;
             for (int y = zone[1]; y < zone[3]; y += stepY) {
+                bitmap.getPixels(rowPixels, 0, width, 0, y, width, 1);
                 for (int x = zone[0]; x < zone[2]; x += stepX) {
-                    int pixel = bitmap.getPixel(x, y);
+                    int pixel = rowPixels[x];
                     if (Color.alpha(pixel) < 128) continue;
                     int r = Color.red(pixel), g = Color.green(pixel), b = Color.blue(pixel);
                     if (Math.max(r, Math.max(g, b)) < 20) continue;

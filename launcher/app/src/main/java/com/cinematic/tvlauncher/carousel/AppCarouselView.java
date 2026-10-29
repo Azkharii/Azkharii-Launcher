@@ -522,11 +522,13 @@ public class AppCarouselView extends FrameLayout {
             Canvas canvas = new Canvas(bitmap);
             drawable.setBounds(0, 0, size, size);
             drawable.draw(canvas);
+            int[] pixels = new int[size * size];
+            bitmap.getPixels(pixels, 0, size, 0, 0, size, size);
 
             long allRed = 0, allGreen = 0, allBlue = 0, allCount = 0;
             for (int y = 0; y < size; y++) {
                 for (int x = 0; x < size; x++) {
-                    int pixel = bitmap.getPixel(x, y);
+                    int pixel = pixels[y * size + x];
                     if (Color.alpha(pixel) < 100) continue;
                     int max = Math.max(Color.red(pixel), Math.max(Color.green(pixel), Color.blue(pixel)));
                     if (max < 20) continue;
@@ -551,7 +553,7 @@ public class AppCarouselView extends FrameLayout {
                 int[] zone = zones[i];
                 for (int y = zone[1]; y < zone[3]; y++) {
                     for (int x = zone[0]; x < zone[2]; x++) {
-                        int pixel = bitmap.getPixel(x, y);
+                        int pixel = pixels[y * size + x];
                         if (Color.alpha(pixel) < 100) continue;
                         int r = Color.red(pixel), g = Color.green(pixel), b = Color.blue(pixel);
                         if (Math.max(r, Math.max(g, b)) < 20) continue;

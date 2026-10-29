@@ -198,7 +198,7 @@ No UI component, navigation behavior, Watch Next feature, wallpaper crossfade, o
 - Background rotation interval: 30 → 60 seconds when multiple wallpapers are present. No timer is scheduled when the queue is empty or has only one image. Manual background selection remains available.
 - Full-screen crossfade: 180 → 160 ms; the transition animation remains enabled.
 - Wallpaper lifecycle: cancel rotation, pending decode and delayed preview-cache work before yielding from Activity.
-- Adaptive wallpaper palette sampling reads the same 32×18 pixels in one bulk transfer instead of 576 individual pixel calls; color selection and HSV interpolation are unchanged.
+- The adaptive HUD's 32×18 wallpaper sample and the 24×24/32×32 app-art samples now use bulk pixel copies; Watch Next poster palette sampling uses reusable row reads. Pixel dimensions, sample strides and color/palette algorithms are unchanged.
 - Focus changes now clear the previous recent-app/library selected state before early-returning on the floating marker, avoiding a stale active glow.
 
 ### Explicitly unchanged

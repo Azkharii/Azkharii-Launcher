@@ -35,9 +35,9 @@ public final class IconAccentSampler {
             long neutralRed = 0L, neutralGreen = 0L, neutralBlue = 0L, neutralCount = 0L;
             float[] hsv = new float[3];
 
-            for (int y = 0; y < SAMPLE_SIZE; y++) {
-                for (int x = 0; x < SAMPLE_SIZE; x++) {
-                    int pixel = bitmap.getPixel(x, y);
+            int[] pixels = new int[SAMPLE_SIZE * SAMPLE_SIZE];
+            bitmap.getPixels(pixels, 0, SAMPLE_SIZE, 0, 0, SAMPLE_SIZE, SAMPLE_SIZE);
+            for (int pixel : pixels) {
                     int alpha = Color.alpha(pixel);
                     if (alpha < 96) continue;
 
@@ -59,7 +59,6 @@ public final class IconAccentSampler {
                     red[bin] += r;
                     green[bin] += g;
                     blue[bin] += b;
-                }
             }
 
             int dominantBin = -1;

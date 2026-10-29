@@ -300,6 +300,6 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 
 - Reverted the 1.2-second hardware-layer promotion/demotion cycle from pinned apps and Continue Watching. Stable hardware layers are restored for their five bounded cards to avoid repeated GPU-layer reconstruction after idle gaps between D-pad presses.
 - The main app carousel's existing animation-only layer handling is unchanged.
-- Wallpaper interval is 60 seconds with a 160 ms crossfade; the transition remains. The adaptive HUD color policy is preserved while its 32×18 pixel sample now uses one bulk read.
+- Wallpaper interval is 60 seconds with a 160 ms crossfade; the transition remains. The HUD, card/banner and icon palette samplers use bulk reads on their small sample bitmaps; Watch Next artwork uses row reads to avoid allocating a full-size temporary pixel array. Color sampling results and visual policy are preserved.
 - Fixed focus transition ordering so a previous carousel loses its selected glow even when focus briefly reaches the floating position marker. Wallpaper work is cancelled before the Activity yields to background.
 - CI for this source revision is pending; CPU/RAM comparison, frame pacing, and visual verification on the Hisense TV have not been performed for this commit.
