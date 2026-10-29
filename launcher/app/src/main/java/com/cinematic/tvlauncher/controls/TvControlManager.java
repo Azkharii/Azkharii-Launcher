@@ -551,13 +551,14 @@ public class TvControlManager {
 
         File target = new File(directory, "custom_background_" + stamp + "_" + index
                 + "_" + readableName + "." + extension);
-        try (InputStream input = activity.getContentResolver().openInputStream(uri);
-             OutputStream output = new FileOutputStream(target)) {
+        try (InputStream input = activity.getContentResolver().openInputStream(uri)) {
             if (input == null) return false;
-            byte[] buffer = new byte[16 * 1024];
-            int read;
-            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-            return target.length() > 0;
+            try (OutputStream output = new FileOutputStream(target)) {
+                byte[] buffer = new byte[16 * 1024];
+                int read;
+                while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+            }
+            return target.isFile() && target.length() > 0L;
         } catch (Exception e) {
             Log.w(TAG, "Unable to import selected background image", e);
             if (target.exists()) target.delete();
