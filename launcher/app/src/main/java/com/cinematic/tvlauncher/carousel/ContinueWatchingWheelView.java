@@ -250,6 +250,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                         }
                     }
                     if (items.isEmpty()) {
+                        cancelVisibleArtworkTasks();
                         removeAllViews();
                         slotViews.clear();
                         setVisibility(View.GONE);
@@ -303,6 +304,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 // A bitmap may outlive its small palette entry; recalculate off the UI thread.
                 submitArtworkTask(generation, item, () -> {
                     int[] palette = sampleArtworkPalette(cached);
+                    if (Thread.currentThread().isInterrupted() || hostPaused
+                            || generation != artworkGeneration.get()) return;
                     ARTWORK_PALETTE_CACHE.put(cacheKey, palette);
                     post(() -> {
                         if (!hostPaused && generation == artworkGeneration.get() && poster.getTag() == item) {
@@ -337,8 +340,12 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             if (decoded != null) {
                 if (palette == null) {
                     palette = sampleArtworkPalette(decoded);
+                    if (Thread.currentThread().isInterrupted() || hostPaused
+                            || generation != artworkGeneration.get()) return;
                     ARTWORK_PALETTE_CACHE.put(cacheKey, palette);
                 }
+                if (Thread.currentThread().isInterrupted() || hostPaused
+                        || generation != artworkGeneration.get()) return;
                 Bitmap ready = decoded;
                 int[] paletteReady = palette;
                 post(() -> {
