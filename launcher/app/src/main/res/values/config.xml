@@ -9,8 +9,8 @@
     <dimen name="safe_margin_vertical">27dp</dimen>
     <dimen name="safe_margin_horizontal">38dp</dimen>
 
-    <!-- Upper Right Controls: Exactly 3 (Inputs, Wi-Fi, Settings) -->
-    <dimen name="control_button_size">44dp</dimen>
-    <dimen name="control_button_spacing">8dp</dimen>
+    <!-- Compact shared footprint for the Wi-Fi, Settings, and Search controls. -->
+    <dimen name="control_button_size">36dp</dimen>
+    <dimen name="control_button_spacing">5dp</dimen>
 
 </resources>
