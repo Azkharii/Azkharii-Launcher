@@ -526,7 +526,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             View progressTrack = new View(getContext());
             progressTrack.setBackgroundColor(0x77070B12);
             LayoutParams trackLp = new LayoutParams(LayoutParams.MATCH_PARENT, dp(2), Gravity.BOTTOM);
-            trackLp.setMargins(dp(2), 0, dp(2), dp(20));
+            trackLp.setMargins(dp(4), 0, dp(4), dp(20));
             surface.addView(progressTrack, trackLp);
 
             View progressFill = new View(getContext());
@@ -535,9 +535,9 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             progressBackground.setCornerRadius(dp(2));
             progressFill.setBackground(progressBackground);
             LayoutParams progressLp = new LayoutParams(
-                    Math.max(dp(2), Math.round((cardWidth - dp(4)) * progressPercent / 100f)),
+                    Math.max(dp(2), Math.round((cardWidth - dp(8)) * progressPercent / 100f)),
                     dp(2), Gravity.BOTTOM | Gravity.LEFT);
-            progressLp.leftMargin = dp(2);
+            progressLp.leftMargin = dp(4);
             progressLp.bottomMargin = dp(20);
             surface.addView(progressFill, progressLp);
         }
