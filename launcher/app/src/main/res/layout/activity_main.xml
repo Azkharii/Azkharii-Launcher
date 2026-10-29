@@ -130,6 +130,29 @@
             android:clipToPadding="false">
 
             <FrameLayout
+                android:id="@+id/btn_check_updates"
+                android:layout_width="28dp"
+                android:layout_height="@dimen/control_button_size"
+                android:layout_marginEnd="4dp"
+                android:background="@android:color/transparent"
+                android:focusable="true"
+                android:clickable="true"
+                android:contentDescription="@string/control_check_updates"
+                android:nextFocusLeft="@id/btn_check_updates"
+                android:nextFocusRight="@id/btn_inputs"
+                android:nextFocusDown="@id/app_carousel">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:text="↓"
+                    android:textSize="22sp"
+                    android:includeFontPadding="false"
+                    android:textColor="#B8E8FF" />
+            </FrameLayout>
+
+            <FrameLayout
                 android:id="@+id/btn_inputs"
                 android:layout_width="68dp"
                 android:layout_height="@dimen/control_button_size"
@@ -137,7 +160,7 @@
                 android:background="@drawable/control_button_bg"
                 android:focusable="true"
                 android:clickable="true"
-                android:nextFocusLeft="@id/btn_inputs"
+                android:nextFocusLeft="@id/btn_check_updates"
                 android:nextFocusRight="@id/btn_wifi"
                 android:nextFocusDown="@id/app_carousel">
 
