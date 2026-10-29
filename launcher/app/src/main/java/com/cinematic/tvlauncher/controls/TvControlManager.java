@@ -866,7 +866,7 @@ public class TvControlManager {
 
     private void handleSettingsAction() {
         Intent[] settingsIntents = new Intent[] {
-                new Intent("android.settings.TV_SETTINGS"), // Leanback / Android TV settings
+                new Intent("android.settings.TV_SETTINGS"), // OEM / Android TV settings
                 new Intent(Settings.ACTION_SETTINGS)
         };
 
@@ -874,10 +874,68 @@ public class TvControlManager {
             try {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 activity.startActivity(intent);
+                Log.i(TAG, "Opened system settings with action " + intent.getAction());
                 return;
-            } catch (Exception ignored) {}
+            } catch (ActivityNotFoundException | SecurityException e) {
+                Log.w(TAG, "System settings action unavailable: " + intent.getAction(), e);
+            } catch (Exception e) {
+                Log.w(TAG, "Could not launch system settings action: " + intent.getAction(), e);
+            }
         }
 
-        Toast.makeText(activity, "Ajustes del sistema no disponibles", Toast.LENGTH_SHORT).show();
+        // Some OEM TV builds do not publish either implicit settings action. As a fallback,
+        // search only the TV-launchable activities that Android already exposes to this app.
+        try {
+            Intent leanback = new Intent(Intent.ACTION_MAIN);
+            leanback.addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
+            List<ResolveInfo> candidates = activity.getPackageManager()
+                    .queryIntentActivities(leanback, 0);
+            ResolveInfo best = null;
+            int bestScore = 0;
+            for (ResolveInfo candidate : candidates) {
+                if (candidate == null || candidate.activityInfo == null) continue;
+                String packageName = candidate.activityInfo.packageName;
+                if (packageName == null || packageName.equals(activity.getPackageName())) continue;
+                CharSequence label;
+                try {
+                    label = candidate.loadLabel(activity.getPackageManager());
+                } catch (Exception ignored) {
+                    label = "";
+                }
+                String identity = (packageName + " " + candidate.activityInfo.name + " "
+                        + String.valueOf(label)).toLowerCase(Locale.ROOT);
+                int score = 0;
+                if (identity.contains("settings") || identity.contains("ajustes")
+                        || identity.contains("configuración") || identity.contains("configuracion")) {
+                    score = 100;
+                }
+                if (identity.contains("hisense") && score > 0) score += 30;
+                if (identity.contains("tv.settings") || identity.contains("tvsettings")) score += 20;
+                if (score > bestScore) {
+                    best = candidate;
+                    bestScore = score;
+                }
+            }
+
+            if (best != null) {
+                Intent launch = new Intent(Intent.ACTION_MAIN);
+                launch.addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
+                launch.setComponent(new ComponentName(
+                        best.activityInfo.packageName, best.activityInfo.name));
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                activity.startActivity(launch);
+                Log.i(TAG, "Opened TV settings activity fallback: "
+                        + best.activityInfo.packageName + "/" + best.activityInfo.name);
+                return;
+            }
+        } catch (ActivityNotFoundException | SecurityException e) {
+            Log.w(TAG, "Could not launch the TV settings activity fallback", e);
+        } catch (Exception e) {
+            Log.w(TAG, "Failed while looking for a TV settings activity", e);
+        }
+
+        Toast.makeText(activity,
+                "No se pudieron abrir Ajustes. El sistema no expuso una actividad compatible.",
+                Toast.LENGTH_LONG).show();
     }
 }
