@@ -48,6 +48,8 @@ public class AppCarouselView extends FrameLayout {
     private final List<Integer> selectionAccentColors = new ArrayList<>();
     private final List<AdaptiveGlowDrawable> cardGlows = new ArrayList<>();
     private int selectedIndex = 0;
+    // Selection styling is active only while this carousel actually owns focus.
+    private boolean selectionActive = false;
     private int maxVisibleCardDistance = 3;
     private OnCarouselSelectionListener selectionListener;
     private ValueAnimator positionAnimator;
@@ -146,6 +148,31 @@ public class AppCarouselView extends FrameLayout {
         return Color.rgb(168, 205, 220);
     }
 
+    /** Show selected-card glow only while focus belongs to this carousel. */
+    public void setSelectionActive(boolean active) {
+        if (selectionActive == active) return;
+        selectionActive = active;
+        int firstVisible = Math.max(0, selectedIndex - maxVisibleCardDistance);
+        int lastVisible = Math.min(cardViews.size() - 1, selectedIndex + maxVisibleCardDistance);
+        for (int i = firstVisible; i <= lastVisible; i++) {
+            View card = cardViews.get(i);
+            View surface = cardSurfaceViews.get(i);
+            boolean focused = active && i == selectedIndex;
+            AdaptiveGlowDrawable glow = cardGlows.get(i);
+            Drawable desiredGlow = focused ? glow : null;
+            if (card.isSelected() != focused || surface.getForeground() != desiredGlow) {
+                card.setSelected(focused);
+                surface.setSelected(focused);
+                surface.setBackground(createCardBackground(cardColors.get(i), focused));
+                glow.setFocused(focused);
+                surface.setForeground(desiredGlow);
+            }
+            int offset = i - selectedIndex;
+            card.setElevation(focused ? dp(6)
+                    : Math.max(dp(1), dp(3) - dp(Math.abs(offset) * 0.5f)));
+        }
+    }
+
     public void setSelectedIndex(int index) {
         pendingMoves.clear();
         int target = CarouselLayoutCalculator.clampIndex(index, items.size());
@@ -197,7 +224,7 @@ public class AppCarouselView extends FrameLayout {
             LayoutParams surfaceLp = new LayoutParams(cardWidth, cardHeight, Gravity.CENTER);
             surface.setLayoutParams(surfaceLp);
             surface.setBackground(createCardBackground(sampledColor, false));
-            surface.setForeground(cardGlows.get(i));
+            // Do not attach/draw an idle adaptive edge before the carousel has focus.
             surface.setClipChildren(true);
             surface.setClipToPadding(true);
             surface.setClipToOutline(true);
@@ -349,13 +376,16 @@ public class AppCarouselView extends FrameLayout {
             }
 
             if (card.getVisibility() != View.VISIBLE) card.setVisibility(View.VISIBLE);
-            boolean focused = offset == 0;
+            boolean focused = selectionActive && offset == 0;
             View surface = cardSurfaceViews.get(i);
-            if (card.isSelected() != focused) {
+            AdaptiveGlowDrawable glow = cardGlows.get(i);
+            Drawable desiredGlow = focused ? glow : null;
+            if (card.isSelected() != focused || surface.getForeground() != desiredGlow) {
                 card.setSelected(focused);
                 surface.setSelected(focused);
                 surface.setBackground(createCardBackground(cardColors.get(i), focused));
-                cardGlows.get(i).setFocused(focused);
+                glow.setFocused(focused);
+                surface.setForeground(desiredGlow);
             }
             card.setElevation(focused ? dp(6)
                     : Math.max(dp(1), dp(3) - dp(Math.abs(offset) * 0.5f)));

@@ -253,7 +253,17 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
                     new FrameLayout.LayoutParams(dp(10), dp(10), Gravity.TOP | Gravity.LEFT));
 
             rootContainer.getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus, newFocus) -> {
-                if (newFocus == null || newFocus == focusPositionDot) return;
+                if (newFocus == focusPositionDot) return;
+                boolean recentAppsFocused = newFocus != null && carouselView != null
+                        && (newFocus == carouselView || isDescendantOf(newFocus, carouselView));
+                if (carouselView != null) carouselView.setSelectionActive(recentAppsFocused);
+                boolean libraryFocused = newFocus != null && libraryCarousel != null
+                        && (newFocus == libraryCarousel || isDescendantOf(newFocus, libraryCarousel));
+                if (libraryCarousel != null) libraryCarousel.setSelectionActive(libraryFocused);
+                if (newFocus == null) {
+                    focusPositionDot.setVisibility(View.GONE);
+                    return;
+                }
                 // The manual-update control is intentionally only a floating arrow, not a card
                 // or a target for the carousel's positional marker.
                 if (newFocus.getId() == R.id.btn_check_updates) {
@@ -965,8 +975,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private int sampleHudAccent(Drawable wallpaper) {
         Bitmap sample = null;
         try {
-            final int sampleWidth = 48;
-            final int sampleHeight = 28;
+            final int sampleWidth = 32;
+            final int sampleHeight = 18;
             final int binCount = 24; // 15-degree hue buckets soften small hue variations.
             sample = Bitmap.createBitmap(sampleWidth, sampleHeight, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(sample);
@@ -1068,15 +1078,14 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
 
         ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
         hudColorAnimator = animator;
-        // This is a color-only transition; a shorter bounded fade keeps the adaptation natural
-        // while reducing redraw time between wallpaper changes.
-        // Keep HUD adaptation brief to limit redraw work after a wallpaper transition.
-        animator.setDuration(600L);
+        // Keep hue adaptation smooth but brief, avoiding a second long redraw burst
+        // after the full-screen wallpaper transition.
+        animator.setDuration(360L);
         animator.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
         animator.addUpdateListener(animation -> {
             float fraction = (float) animation.getAnimatedValue();
             long now = android.os.SystemClock.uptimeMillis();
-            if (fraction < 1f && now - lastHudAccentFrameAtMs < 50L) return;
+            if (fraction < 1f && now - lastHudAccentFrameAtMs < 66L) return;
             lastHudAccentFrameAtMs = now;
 
             hudAnimationFrameHsv[0] = (hudAnimationStartHsv[0] + fraction * targetHueDelta + 360f) % 360f;
@@ -1561,6 +1570,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private void showAppLibrary() {
         if (libraryVisible || libraryOverlay == null || libraryCarousel == null) return;
         libraryVisible = true;
+        // The performance HUD measures only the actual home screen, not the app library.
+        if (performanceHud != null) performanceHud.stop();
 
         List<AppItem> apps = discoveryManager.discoverApps(0);
         libraryCarousel.setItems(apps);
@@ -1615,6 +1626,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
                         libraryOverlay.setTranslationY(0);
                         libraryOverlay.animate().setListener(null);
                         carouselView.requestFocus();
+                        if (performanceHud != null) performanceHud.start();
                     }
                 })
                 .start();
@@ -1624,7 +1636,13 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     protected void onResume() {
         super.onResume();
         activityResumed = true;
-        if (performanceHud != null) performanceHud.start();
+        if (performanceHud != null) {
+            if (libraryVisible || (libraryOverlay != null && libraryOverlay.getVisibility() == View.VISIBLE)) {
+                performanceHud.stop();
+            } else {
+                performanceHud.start();
+            }
+        }
         if (backgroundManager != null) {
             backgroundManager.onResume();
         }

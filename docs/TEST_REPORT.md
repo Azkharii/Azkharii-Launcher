@@ -263,3 +263,14 @@ The automatic update path remains implemented but is not deployable against the 
 The Photos, saved-backgrounds and input-source dialogs now use smaller dimensions and tighter spacing. The Wi-Fi, Settings and Search controls share a reduced footprint. Continue Watching cards now use a landscape proportion aligned with their artwork; idle cards no longer show a detached perimeter frame, while the focused-card illumination remains.
 
 **Validation:** GitHub Actions is required for code/test/build checks. Visual confirmation on the TV remains pending for focus navigation, poster/title overlap, dialog sizing and readability at the device's display density.
+
+
+## Focus-only glow, compact dialogs, and wallpaper transition tuning (2026-10-29)
+
+- **Recent apps / app library:** selected-card illumination now follows actual focus ownership. Leaving either carousel for Pinned Apps, Continue Watching, or top controls detaches the old glow; the selected index is retained without leaving an unselected card illuminated.
+- **Performance HUD:** both RAM and CPU sampling stop together and the readout is hidden while the app library overlay is active. Sampling/readout resumes after returning to the home carousel.
+- **Entradas:** centered, one-line source names stay within their buttons; row height, margins, title and dialog width are reduced. HDMI/AV/TV enumeration and launch callbacks are unchanged.
+- **Fotos / Mis fondos:** smaller padding, typography, action buttons and dialog widths. The saved-background viewport grows with displayed item count up to a cap, then scrolls.
+- **Wallpaper transition:** crossfade duration is reduced from 400 ms to 260 ms. HUD palette sampling goes from 48×28 to 32×18 pixels, its color transition from 600 ms to 360 ms with updates limited to roughly 15/s, and first-visit preview compression is deferred to 1.8 s and coalesced to avoid encoding obsolete wallpaper bitmaps. JPEG quality is 85 instead of 91 to reduce encode cost; visual image quality needs TV confirmation.
+- **Cleanup audit:** release builds already use R8 and unused-resource shrinking. No broad file/resource deletion was made because the source audit did not prove other production resources were unreferenced.
+- **Validation:** repository tests, debug APK build and optimized release build must pass CI for this commit. Physical-TV visual/focus checks and same-scene CPU/RAM samples remain pending; no measured reduction is claimed yet.

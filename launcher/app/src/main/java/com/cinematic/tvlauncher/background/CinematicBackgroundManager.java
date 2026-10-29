@@ -63,6 +63,8 @@ public class CinematicBackgroundManager {
     private File wallpaperFileA;
     private File wallpaperFileB;
     private Runnable backgroundChangedListener;
+    // Only cache the latest displayed wallpaper after transition/HUD redraws settle.
+    private Runnable pendingWallpaperCacheRunnable;
 
     private final Runnable rotationRunnable = new Runnable() {
         @Override
@@ -203,6 +205,7 @@ public class CinematicBackgroundManager {
     /** Starts a worker decode and crossfades to an explicitly selected app-managed photo. */
     public boolean showWallpaper(File file) {
         if (file == null || !isSupportedImage(file) || destroyed || !isVisible) return false;
+        cancelPendingWallpaperCache();
         mainHandler.removeCallbacks(rotationRunnable);
         queue.markDisplayed(file);
         if (pendingDecode != null) pendingDecode.cancel(true);
@@ -306,6 +309,7 @@ public class CinematicBackgroundManager {
         isVisible = false;
         workGeneration.incrementAndGet();
         mainHandler.removeCallbacks(rotationRunnable);
+        cancelPendingWallpaperCache();
         if (pendingDecode != null) {
             pendingDecode.cancel(true);
             pendingDecode = null;
@@ -378,7 +382,7 @@ public class CinematicBackgroundManager {
         else wallpaperFileB = sourceFile;
         back.setAlpha(0f);
 
-        int duration = Math.max(180, config.getCrossfadeDurationMs());
+        int duration = Math.max(160, config.getCrossfadeDurationMs());
         ObjectAnimator fadeIn = ObjectAnimator.ofFloat(back, "alpha", 0f, 1f);
         AnimatorSet crossfade = new AnimatorSet();
         crossfade.play(fadeIn);
@@ -455,16 +459,32 @@ public class CinematicBackgroundManager {
      * bypass JPEG caching to preserve transparency.
      */
     private void scheduleWallpaperPreviewCache(File source, Bitmap bitmap) {
-        // Let the crossfade and wallpaper-adaptive HUD animation settle before JPEG compression
-        // consumes CPU. This work is off the UI thread and is only needed on the first visit.
-        mainHandler.postDelayed(() -> {
-            if (destroyed || source == null || !source.isFile()) return;
-            try {
-                decodeExecutor.execute(() -> cacheWallpaperPreviewIfNeeded(source, bitmap));
-            } catch (java.util.concurrent.RejectedExecutionException ignored) {
-                // Cache is optional; a later visit can still decode the original safely.
-            }
-        }, 700L);
+        // Delay JPEG compression until crossfade/HUD work settles. Coalesce rapid changes so
+        // stale full-size bitmaps are not encoded after the user has already chosen another.
+        mainHandler.post(() -> {
+            if (destroyed || !isVisible || source == null || !source.isFile()) return;
+            cancelPendingWallpaperCache();
+            Runnable cacheTask = new Runnable() {
+                @Override public void run() {
+                    if (pendingWallpaperCacheRunnable == this) pendingWallpaperCacheRunnable = null;
+                    if (destroyed || !isVisible || source == null || !source.isFile()
+                            || !source.equals(currentWallpaperFile)) return;
+                    try {
+                        decodeExecutor.execute(() -> cacheWallpaperPreviewIfNeeded(source, bitmap));
+                    } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                        // Cache is optional; a later visit can still decode the original safely.
+                    }
+                }
+            };
+            pendingWallpaperCacheRunnable = cacheTask;
+            mainHandler.postDelayed(cacheTask, 1800L);
+        });
+    }
+
+    private void cancelPendingWallpaperCache() {
+        if (pendingWallpaperCacheRunnable == null) return;
+        mainHandler.removeCallbacks(pendingWallpaperCacheRunnable);
+        pendingWallpaperCacheRunnable = null;
     }
 
     private void cacheWallpaperPreviewIfNeeded(File source, Bitmap bitmap) {
@@ -477,7 +497,7 @@ public class CinematicBackgroundManager {
         if (directory == null || (!directory.isDirectory() && !directory.mkdirs())) return;
         File temporaryFile = new File(directory, previewFile.getName() + ".tmp");
         try (FileOutputStream output = new FileOutputStream(temporaryFile)) {
-            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 91, output)) {
+            if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 85, output)) {
                 temporaryFile.delete();
                 return;
             }
