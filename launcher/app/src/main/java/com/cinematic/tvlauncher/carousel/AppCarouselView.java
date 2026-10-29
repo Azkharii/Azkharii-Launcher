@@ -51,6 +51,19 @@ public class AppCarouselView extends FrameLayout {
     private int maxVisibleCardDistance = 3;
     private OnCarouselSelectionListener selectionListener;
     private ValueAnimator positionAnimator;
+    // Reuse animation buffers across D-pad moves to avoid per-move float-array allocation.
+    private int[] animationVisibleIndices = new int[0];
+    private float[] animationFromX = new float[0];
+    private float[] animationFromScaleX = new float[0];
+    private float[] animationFromScaleY = new float[0];
+    private float[] animationFromAlpha = new float[0];
+    private float[] animationFromRotationY = new float[0];
+    private float[] animationToX = new float[0];
+    private float[] animationToScale = new float[0];
+    private float[] animationToAlpha = new float[0];
+    private float[] animationToRotationY = new float[0];
+    private int lastVisibleStart = -1;
+    private int lastVisibleEnd = -1;
     // Queue short D-pad repeats instead of cancelling an in-flight carousel slide.
     // This preserves the fixed center slot while cards advance one position at a time.
     private final Deque<Integer> pendingMoves = new ArrayDeque<>();
@@ -150,6 +163,8 @@ public class AppCarouselView extends FrameLayout {
         cardColors.clear();
         selectionAccentColors.clear();
         cardGlows.clear();
+        lastVisibleStart = -1;
+        lastVisibleEnd = -1;
 
         Context context = getContext();
         float density = getResources().getDisplayMetrics().density;
@@ -260,6 +275,7 @@ public class AppCarouselView extends FrameLayout {
 
             final int itemIndex = i;
             card.setFocusable(true);
+            card.setVisibility(View.GONE); // Only the bounded visible window is activated.
             card.setClickable(true);
             card.setContentDescription(item.getLabel());
             card.setOnLongClickListener(v -> {
@@ -289,43 +305,50 @@ public class AppCarouselView extends FrameLayout {
             positionAnimator.cancel();
             positionAnimator = null;
         }
-        if (count == 0) return;
+        if (count == 0) {
+            lastVisibleStart = -1;
+            lastVisibleEnd = -1;
+            return;
+        }
 
         float density = getResources().getDisplayMetrics().density;
         float baseWidth = 118f * density;
         float spacing = 12f * density;
-        // Only the current five/seven-card viewport animates. Allocate motion buffers for
-        // visible cards, not every installed app in the full library.
-        int visibleCapacity = Math.min(count, maxVisibleCardDistance * 2 + 1);
-        int[] visibleIndices = new int[visibleCapacity];
-        float[] fromX = new float[visibleCapacity];
-        float[] fromScaleX = new float[visibleCapacity];
-        float[] fromScaleY = new float[visibleCapacity];
-        float[] fromAlpha = new float[visibleCapacity];
-        float[] fromRotationY = new float[visibleCapacity];
-        float[] toX = new float[visibleCapacity];
-        float[] toScale = new float[visibleCapacity];
-        float[] toAlpha = new float[visibleCapacity];
-        float[] toRotationY = new float[visibleCapacity];
+
+        // Only visit the old and new visible ranges. The previous implementation walked every
+        // installed app on every D-pad step merely to keep off-screen cards GONE.
+        int firstVisible = Math.max(0, selectedIndex - maxVisibleCardDistance);
+        int lastVisible = Math.min(count - 1, selectedIndex + maxVisibleCardDistance);
+        if (lastVisibleStart >= 0) {
+            for (int i = lastVisibleStart; i <= lastVisibleEnd; i++) {
+                if (i < firstVisible || i > lastVisible) {
+                    View card = cardViews.get(i);
+                    if (card.getLayerType() != View.LAYER_TYPE_NONE) {
+                        card.setLayerType(View.LAYER_TYPE_NONE, null);
+                    }
+                    if (card.getVisibility() != View.GONE) card.setVisibility(View.GONE);
+                }
+            }
+        }
+
+        int visibleCapacity = Math.max(0, lastVisible - firstVisible + 1);
+        ensureAnimationBufferCapacity(visibleCapacity);
         int visibleCount = 0;
 
-        for (int i = 0; i < count; i++) {
+        for (int i = firstVisible; i <= lastVisible; i++) {
             View card = cardViews.get(i);
             int offset = i - selectedIndex;
             CarouselLayoutCalculator.CardTransform transform =
                     CarouselLayoutCalculator.calculateTransform(offset, baseWidth, spacing);
-            boolean visible = transform.visible && Math.abs(offset) <= maxVisibleCardDistance;
-            if (!visible) {
-                // Drop GPU resources as a card leaves the viewport; retained visible cards
-                // keep their hardware layer through adjacent D-pad moves.
+            if (!transform.visible) {
                 if (card.getLayerType() != View.LAYER_TYPE_NONE) {
                     card.setLayerType(View.LAYER_TYPE_NONE, null);
                 }
-                card.setVisibility(View.GONE);
+                if (card.getVisibility() != View.GONE) card.setVisibility(View.GONE);
                 continue;
             }
 
-            card.setVisibility(View.VISIBLE);
+            if (card.getVisibility() != View.VISIBLE) card.setVisibility(View.VISIBLE);
             boolean focused = offset == 0;
             View surface = cardSurfaceViews.get(i);
             if (card.isSelected() != focused) {
@@ -338,26 +361,30 @@ public class AppCarouselView extends FrameLayout {
                     : Math.max(dp(1), dp(3) - dp(Math.abs(offset) * 0.5f)));
 
             int slot = visibleCount++;
-            visibleIndices[slot] = i;
-            fromX[slot] = card.getTranslationX();
-            fromScaleX[slot] = card.getScaleX();
-            fromScaleY[slot] = card.getScaleY();
-            fromAlpha[slot] = card.getAlpha();
-            fromRotationY[slot] = card.getRotationY();
-            toX[slot] = transform.translationX;
-            toScale[slot] = transform.scale;
-            toAlpha[slot] = transform.alpha;
-            toRotationY[slot] = transform.rotationY;
+            animationVisibleIndices[slot] = i;
+            animationFromX[slot] = card.getTranslationX();
+            animationFromScaleX[slot] = card.getScaleX();
+            animationFromScaleY[slot] = card.getScaleY();
+            animationFromAlpha[slot] = card.getAlpha();
+            animationFromRotationY[slot] = card.getRotationY();
+            animationToX[slot] = transform.translationX;
+            animationToScale[slot] = transform.scale;
+            animationToAlpha[slot] = transform.alpha;
+            animationToRotationY[slot] = transform.rotationY;
         }
+
+        lastVisibleStart = firstVisible;
+        lastVisibleEnd = lastVisible;
 
         if (!animate) {
             for (int slot = 0; slot < visibleCount; slot++) {
-                View card = cardViews.get(visibleIndices[slot]);
-                card.setTranslationX(toX[slot]);
-                card.setScaleX(toScale[slot]);
-                card.setScaleY(toScale[slot]);
-                card.setAlpha(toAlpha[slot]);
-                card.setRotationY(toRotationY[slot]);
+                View card = cardViews.get(animationVisibleIndices[slot]);
+                card.setTranslationX(animationToX[slot]);
+                card.setScaleX(animationToScale[slot]);
+                card.setScaleY(animationToScale[slot]);
+                card.setAlpha(animationToAlpha[slot]);
+                card.setRotationY(animationToRotationY[slot]);
+                card.setLayerType(View.LAYER_TYPE_NONE, null);
             }
             return;
         }
@@ -369,22 +396,24 @@ public class AppCarouselView extends FrameLayout {
         animator.setInterpolator(new DecelerateInterpolator(1.2f));
         animator.addUpdateListener(animation -> {
             float t = (float) animation.getAnimatedValue();
-            // Critical hot path: iterate only cards that are actually on screen.
             for (int slot = 0; slot < animatedCardCount; slot++) {
-                View card = cardViews.get(visibleIndices[slot]);
-                card.setTranslationX(fromX[slot] + (toX[slot] - fromX[slot]) * t);
-                card.setScaleX(fromScaleX[slot] + (toScale[slot] - fromScaleX[slot]) * t);
-                card.setScaleY(fromScaleY[slot] + (toScale[slot] - fromScaleY[slot]) * t);
-                card.setAlpha(fromAlpha[slot] + (toAlpha[slot] - fromAlpha[slot]) * t);
-                card.setRotationY(fromRotationY[slot]
-                        + (toRotationY[slot] - fromRotationY[slot]) * t);
+                View card = cardViews.get(animationVisibleIndices[slot]);
+                card.setTranslationX(animationFromX[slot]
+                        + (animationToX[slot] - animationFromX[slot]) * t);
+                card.setScaleX(animationFromScaleX[slot]
+                        + (animationToScale[slot] - animationFromScaleX[slot]) * t);
+                card.setScaleY(animationFromScaleY[slot]
+                        + (animationToScale[slot] - animationFromScaleY[slot]) * t);
+                card.setAlpha(animationFromAlpha[slot]
+                        + (animationToAlpha[slot] - animationFromAlpha[slot]) * t);
+                card.setRotationY(animationFromRotationY[slot]
+                        + (animationToRotationY[slot] - animationFromRotationY[slot]) * t);
             }
         });
 
-        // Keep hardware layers for visible cards between quick D-pad moves. Recreating them
-        // after every short slide adds GPU work and can cause visible stutter on TV hardware.
+        // Reuse hardware layers only for cards actually participating in the current slide.
         for (int slot = 0; slot < visibleCount; slot++) {
-            View card = cardViews.get(visibleIndices[slot]);
+            View card = cardViews.get(animationVisibleIndices[slot]);
             if (card.getLayerType() != View.LAYER_TYPE_HARDWARE) {
                 card.setLayerType(View.LAYER_TYPE_HARDWARE, null);
             }
@@ -400,6 +429,20 @@ public class AppCarouselView extends FrameLayout {
             }
         });
         animator.start();
+    }
+
+    private void ensureAnimationBufferCapacity(int capacity) {
+        if (animationVisibleIndices.length >= capacity) return;
+        animationVisibleIndices = new int[capacity];
+        animationFromX = new float[capacity];
+        animationFromScaleX = new float[capacity];
+        animationFromScaleY = new float[capacity];
+        animationFromAlpha = new float[capacity];
+        animationFromRotationY = new float[capacity];
+        animationToX = new float[capacity];
+        animationToScale = new float[capacity];
+        animationToAlpha = new float[capacity];
+        animationToRotationY = new float[capacity];
     }
 
     private GradientDrawable createCardBackground(int color, boolean focused) {

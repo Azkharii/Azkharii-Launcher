@@ -34,14 +34,8 @@ import java.util.concurrent.TimeUnit;
 public final class UpdateManager {
     private static final String TAG="LauncherUpdater";
     private static final String PREFS="cinematic_launcher_prefs";
-    private static final String LAST_SUCCESS="update_last_success_ms";
-    private static final String LAST_ATTEMPT="update_last_attempt_ms";
-    private static final String FAILURE_COUNT="update_check_failure_count";
     private static final String LAST_STATUS="update_last_status";
-    private static final String PROMPT_CODE="update_last_prompted_code";
-    private static final String PROMPT_TIME="update_last_prompted_at";
     private static final String PENDING_INSTALL="update_pending_install_path";
-    private static final long REPROMPT=24L*60L*60L*1000L;
     private static final int MAX_JSON=2*1024*1024;
     private static final long MAX_APK=350L*1024L*1024L;
     private static final String RELEASE_API="https://api.github.com/repos/Azkharii/Azkharii-Launcher/releases/latest";
@@ -54,131 +48,207 @@ public final class UpdateManager {
     private final Handler handler=new Handler(Looper.getMainLooper());
     private volatile boolean closed,resumed,checking;
 
-    private final Runnable periodicCheck=new Runnable(){
-        @Override public void run(){
-            if(closed||!resumed)return;
-            checkIfDue();
-            scheduleNextCheck();
-        }
-    };
-
     public UpdateManager(Activity activity){
         this.activity=activity;
         prefs=activity.getSharedPreferences(PREFS,Activity.MODE_PRIVATE);
     }
+
+    /** Updates are checked only on explicit user action, never on a timer or launcher resume. */
     public void onResume(){
         if(closed)return;
         resumed=true;
-        if(BuildConfig.DEBUG||BuildConfig.APPLICATION_ID.endsWith(".debug"))return;
-        handler.removeCallbacks(periodicCheck);
-        if(!tryInstallPendingUpdate())checkIfDue();
-        scheduleNextCheck();
+        tryInstallPendingUpdate();
     }
-    public void onPause(){resumed=false;handler.removeCallbacks(periodicCheck);}
+
+    public void onPause(){resumed=false;}
     public void close(){closed=true;resumed=false;handler.removeCallbacksAndMessages(null);executor.shutdownNow();}
 
-    private void checkIfDue(){
-        if(closed||!resumed||checking)return;
-        long now=System.currentTimeMillis();
-        long delay=UpdateCheckPolicy.nextDelayMillis(now,
-                prefs.getLong(LAST_SUCCESS,0L),
-                prefs.getLong(LAST_ATTEMPT,0L),
-                prefs.getInt(FAILURE_COUNT,0));
-        if(delay>0L)return;
-        prefs.edit().putLong(LAST_ATTEMPT,now).apply();
+    public void checkNow(){
+        if(closed||!resumed||activity.isFinishing()||activity.isDestroyed())return;
+        if(checking){
+            Toast.makeText(activity,"Ya se está comprobando si hay actualizaciones…",Toast.LENGTH_SHORT).show();
+            return;
+        }
         checking=true;
-        try{executor.execute(this::checkLatestRelease);}
-        catch(java.util.concurrent.RejectedExecutionException ignored){
+        Toast.makeText(activity,"Comprobando actualizaciones…",Toast.LENGTH_SHORT).show();
+        try{
+            executor.execute(this::checkLatestRelease);
+        }catch(java.util.concurrent.RejectedExecutionException e){
             checking=false;
             recordCheckFailure("CHECK_NOT_SCHEDULED");
-            scheduleNextCheck();
+            showManualStatus("No se pudo iniciar la comprobación de actualizaciones.");
         }
     }
 
-    private void scheduleNextCheck(){
-        handler.removeCallbacks(periodicCheck);
-        if(closed||!resumed||checking)return;
-        long now=System.currentTimeMillis();
-        long delay=UpdateCheckPolicy.nextDelayMillis(now,
-                prefs.getLong(LAST_SUCCESS,0L),
-                prefs.getLong(LAST_ATTEMPT,0L),
-                prefs.getInt(FAILURE_COUNT,0));
-        handler.postDelayed(periodicCheck,Math.max(1000L,delay));
-    }
-
-    private void recordCheckSuccess(){
-        prefs.edit().putLong(LAST_SUCCESS,System.currentTimeMillis())
-                .putInt(FAILURE_COUNT,0).apply();
-    }
-
     private void recordCheckFailure(String status){
-        int failures=Math.min(16,prefs.getInt(FAILURE_COUNT,0)+1);
-        prefs.edit().putString(LAST_STATUS,status).putInt(FAILURE_COUNT,failures).apply();
+        prefs.edit().putString(LAST_STATUS,status).apply();
+    }
+
+    private void showManualStatus(String message){
+        handler.post(()->{
+            if(closed||!resumed||activity.isFinishing()||activity.isDestroyed())return;
+            Toast.makeText(activity,message,Toast.LENGTH_LONG).show();
+        });
     }
 
     private void checkLatestRelease(){
         HttpURLConnection connection=null;
         try{
             connection=(HttpURLConnection)new URL(RELEASE_API).openConnection();
-            connection.setRequestMethod("GET");connection.setConnectTimeout(8000);connection.setReadTimeout(10000);
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(6000);
+            connection.setReadTimeout(8000);
             connection.setRequestProperty("Accept","application/vnd.github+json");
-            connection.setRequestProperty("X-GitHub-Api-Version","2026-03-10");
+            connection.setRequestProperty("X-GitHub-Api-Version","2022-11-28");
             connection.setRequestProperty("User-Agent","CinematicTVLauncher/"+BuildConfig.VERSION_NAME);
+
             int status=connection.getResponseCode();
             if(status==404){
-                recordCheckFailure("PRIVATE_OR_NO_PUBLIC_RELEASE");
-                Log.w(TAG,"Latest release is not anonymously readable; repository may be private.");return;
+                recordCheckFailure("NO_PUBLIC_RELEASE");
+                showManualStatus("GitHub no encontró una versión pública publicada.");
+                return;
             }
             if(status==403||status==429){
-                recordCheckFailure("RATE_LIMITED");Log.w(TAG,"GitHub rate limit, HTTP "+status);return;
+                recordCheckFailure("RATE_LIMITED");
+                showManualStatus("GitHub limitó temporalmente las comprobaciones. Inténtalo más tarde.");
+                return;
             }
             if(status<200||status>=300){
-                recordCheckFailure("HTTP_"+status);Log.w(TAG,"Release HTTP status "+status);return;
+                recordCheckFailure("HTTP_"+status);
+                showManualStatus("No se pudo consultar GitHub (HTTP "+status+").");
+                return;
             }
+
             JSONObject release=new JSONObject(readLimited(connection.getInputStream(),MAX_JSON));
             if(release.optBoolean("draft",false)||release.optBoolean("prerelease",false)){
-                recordCheckSuccess();return;
+                prefs.edit().putString(LAST_STATUS,"NO_STABLE_RELEASE").apply();
+                showManualStatus("No hay una versión estable pública disponible.");
+                return;
             }
-            long remote=UpdateVersionPolicy.parseVersionCodeFromTag(release.optString("tag_name",""));
+
+            String tag=release.optString("tag_name","");
+            long remote=UpdateVersionPolicy.parseVersionCodeFromTag(tag);
+            String releaseUrl=release.optString("html_url","https://github.com/Azkharii/Azkharii-Launcher/releases");
+            if(remote<=0L){
+                recordCheckFailure("INVALID_RELEASE_TAG");
+                showManualStatus("La publicación existe, pero su etiqueta de versión no se pudo interpretar.");
+                return;
+            }
+
             if(!UpdateVersionPolicy.isNewer(remote,BuildConfig.VERSION_CODE)){
                 prefs.edit().putString(LAST_STATUS,"CURRENT").apply();
-                recordCheckSuccess();return;
+                showManualStatus("Cinematic TV ya está actualizado ("+
+                        UpdateVersionPolicy.formatDisplayVersion(BuildConfig.VERSION_NAME)+").");
+                return;
             }
+
+            String apkUrl=null;
+            String checksumUrl=null;
+            String digest=null;
+            long size=-1L;
             JSONArray assets=release.optJSONArray("assets");
-            String url=null,digest=null;long size=-1L;
-            if(assets!=null)for(int i=0;i<assets.length();i++){
-                JSONObject asset=assets.optJSONObject(i);
-                if(asset==null||!APK_NAME.equals(asset.optString("name")))continue;
-                url=asset.optString("browser_download_url",null);
-                String raw=asset.optString("digest",null);
-                if(raw!=null&&raw.startsWith("sha256:"))digest=raw.substring(7).trim();
-                size=asset.optLong("size",-1L);break;
+            if(assets!=null){
+                for(int i=0;i<assets.length();i++){
+                    JSONObject asset=assets.optJSONObject(i);
+                    if(asset==null)continue;
+                    String name=asset.optString("name","");
+                    if(APK_NAME.equals(name)){
+                        apkUrl=asset.optString("browser_download_url",null);
+                        size=asset.optLong("size",-1L);
+                        String raw=asset.optString("digest",null);
+                        if(raw!=null&&raw.startsWith("sha256:"))digest=raw.substring(7).trim();
+                    }else if((APK_NAME+".sha256").equals(name)){
+                        checksumUrl=asset.optString("browser_download_url",null);
+                    }
+                }
             }
-            if(url==null||digest==null||digest.length()!=64||size<=0L||size>MAX_APK){
-                recordCheckFailure("MISSING_ASSET_OR_DIGEST");
-                Log.w(TAG,"Latest release lacks expected APK asset, size, or SHA-256 digest.");return;
+
+            String displayVersion=UpdateVersionPolicy.formatDisplayVersion(tag);
+            if(apkUrl==null||size<=0L||size>MAX_APK){
+                recordCheckFailure("MISSING_APK_ASSET");
+                handler.post(()->showUnverifiedReleaseDialog(displayVersion,releaseUrl,
+                        "La versión nueva está publicada, pero falta el APK esperado o su tamaño no es válido. No se instalará nada."));
+                return;
             }
-            String displayVersion=UpdateVersionPolicy.formatDisplayVersion(release.optString("tag_name",""));
-            UpdateInfo info=new UpdateInfo(displayVersion,remote,url,digest.toLowerCase(Locale.ROOT),size);
+
+            // Older release uploads may not expose the REST asset digest. The release workflow
+            // also publishes an APK.sha256 sidecar; use it as a fallback instead of silently
+            // discarding an otherwise valid update notification.
+            if(digest==null||!digest.matches("(?i)[0-9a-f]{64}")){
+                digest=fetchChecksum(checksumUrl);
+            }
+            if(digest==null||!digest.matches("(?i)[0-9a-f]{64}")){
+                recordCheckFailure("MISSING_APK_SHA256");
+                handler.post(()->showUnverifiedReleaseDialog(displayVersion,releaseUrl,
+                        "La versión nueva está publicada, pero no se pudo verificar su SHA-256. Por seguridad, no se descargará ni instalará el APK."));
+                return;
+            }
+
+            UpdateInfo info=new UpdateInfo(displayVersion,remote,apkUrl,
+                    digest.toLowerCase(Locale.ROOT),size,releaseUrl);
             prefs.edit().putString(LAST_STATUS,"UPDATE_AVAILABLE").apply();
-            recordCheckSuccess();
             handler.post(()->showUpdateDialog(info));
         }catch(Exception e){
             recordCheckFailure("CHECK_FAILED");
-            Log.w(TAG,"Update check failed; installed launcher remains usable.",e);
+            Log.w(TAG,"Manual update check failed; the installed launcher remains usable.",e);
+            showManualStatus("Falló la comprobación. Revisa la conexión y vuelve a intentarlo.");
         }finally{
             if(connection!=null)connection.disconnect();
             checking=false;
-            handler.post(this::scheduleNextCheck);
         }
+    }
+
+    private String fetchChecksum(String checksumUrl){
+        if(checksumUrl==null||checksumUrl.trim().isEmpty())return null;
+        HttpURLConnection connection=null;
+        try{
+            connection=(HttpURLConnection)new URL(checksumUrl).openConnection();
+            connection.setRequestMethod("GET");
+            connection.setConnectTimeout(4000);
+            connection.setReadTimeout(4000);
+            connection.setRequestProperty("User-Agent","CinematicTVLauncher/"+BuildConfig.VERSION_NAME);
+            int status=connection.getResponseCode();
+            if(status<200||status>=300)return null;
+            String content=readLimited(connection.getInputStream(),4096);
+            java.util.regex.Matcher matcher=java.util.regex.Pattern
+                    .compile("(?i)(?:^|\\s)([0-9a-f]{64})(?:\\s|$)")
+                    .matcher(content);
+            return matcher.find()?matcher.group(1):null;
+        }catch(Exception e){
+            Log.w(TAG,"Could not read release SHA-256 sidecar.",e);
+            return null;
+        }finally{
+            if(connection!=null)connection.disconnect();
+        }
+    }
+
+    private void showUnverifiedReleaseDialog(String version,String releaseUrl,String reason){
+        if(closed||!resumed||activity.isFinishing()||activity.isDestroyed())return;
+        AlertDialog dialog=new AlertDialog.Builder(activity)
+                .setTitle("Actualización publicada")
+                .setMessage("Nueva versión: "+version+"\n\n"+reason)
+                .setPositiveButton("Ver publicación",(d,which)->{
+                    try{
+                        Intent intent=new Intent(Intent.ACTION_VIEW,Uri.parse(releaseUrl));
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        activity.startActivity(intent);
+                    }catch(Exception e){
+                        Toast.makeText(activity,"No se pudo abrir la publicación de GitHub.",Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNegativeButton("Cerrar",null)
+                .create();
+        dialog.show();
     }
 
     private void showUpdateDialog(UpdateInfo info){
         if(closed||!resumed||activity.isFinishing()||activity.isDestroyed())return;
-        if(prefs.getLong(PROMPT_CODE,0L)==info.version
-                &&System.currentTimeMillis()-prefs.getLong(PROMPT_TIME,0L)<REPROMPT)return;
-        prefs.edit().putLong(PROMPT_CODE,info.version).putLong(PROMPT_TIME,System.currentTimeMillis()).apply();
         String installedVersion=UpdateVersionPolicy.formatDisplayVersion(BuildConfig.VERSION_NAME);
+        if(BuildConfig.DEBUG||BuildConfig.APPLICATION_ID.endsWith(".debug")){
+            showUnverifiedReleaseDialog(info.displayVersion,info.releaseUrl,
+                    "Esta compilación de pruebas no puede actualizarse directamente con el APK estable. Instala la versión estable desde la publicación.");
+            return;
+        }
         String text=installedVersion+" → "+info.displayVersion
                 +"\n\nSe verificará el APK antes de abrir el instalador.";
         new AlertDialog.Builder(activity).setTitle("Actualizar Cinematic TV").setMessage(text)
@@ -286,9 +356,10 @@ public final class UpdateManager {
         return out.toString();
     }
     private static final class UpdateInfo{
-        final String displayVersion,url,sha256;final long version,size;
-        UpdateInfo(String displayVersion,long version,String url,String sha256,long size){
+        final String displayVersion,url,sha256,releaseUrl;final long version,size;
+        UpdateInfo(String displayVersion,long version,String url,String sha256,long size,String releaseUrl){
             this.displayVersion=displayVersion;this.version=version;this.url=url;this.sha256=sha256;this.size=size;
+            this.releaseUrl=releaseUrl;
         }
     }
 }

@@ -14,13 +14,17 @@ This pattern points to sustained rendering/composition work, not proof of a pack
 
 ## Confirmed source-level cause candidate
 
-`CinematicBackgroundManager.startSubtleMotion()` creates an infinite `ValueAnimator` (`RESTART`/reverse) that scales a full-screen wallpaper layer continuously for the entire foreground lifetime. The resource default enabled it. This causes continuous full-screen invalidation/composition even when the user is not navigating, and is a high-confidence, low-risk candidate to test first on this low-power TV.
+`CinematicBackgroundManager.startSubtleMotion()` previously created an infinite full-screen wallpaper scaling animation. It was disabled by default, and this follow-up removes the implementation, configuration fields, resource entries, and obsolete test assertions entirely. The crossfade and 10-second rotation remain.
 
-## Change in this branch
+## Latest source follow-up — 2026-10-29
 
-- Set `background_motion_enabled` to `false` by default.
-- Preserve the existing slow zoom implementation and `background_motion_duration_sec` setting so the effect remains available as an opt-in.
-- Keep 10-second wallpaper rotation, 600 ms crossfade, app discovery, recent apps, pinned apps, Continue Watching, wallpaper-aware HUD, controls, and update checking unchanged.
+- The unused wallpaper zoom animation, animator state, configuration fields, and resource entries have been removed completely. Wallpaper rotation and crossfade remain.
+- OTA checks are user-initiated through the unframed arrow to the left of Entradas; periodic checks and clock-based retry timers have been removed. Manual checking also works in debug builds to open the release page, but a debug APK is never offered as an in-place stable update.
+- The release checker falls back to the release's `.sha256` sidecar when GitHub's APK asset metadata omits `digest`. It does not download/install an update without a valid SHA-256.
+- Physical Search/Assist handling tries Android's `ACTION_ASSIST`, then `ACTION_VOICE_COMMAND`; the firmware's actual remote key mapping still needs a real-TV check.
+- Imported wallpaper selections are copied to app-private storage on a worker thread. The photo dialog now opens a managed library with current wallpaper, Use, and Delete actions. Deleting the active wallpaper restores a valid default image before the remaining collection is refreshed.
+- Main carousel movement now updates only the previous/new visible card ranges and reuses animation buffers. This removes the all-installed-app scan and per-move array allocations from each D-pad step; animation/glow effects remain.
+- The previous active zoom-enable bullets and old scheduler-policy tests are superseded by the removal above.
 
 ## Static review notes
 
@@ -28,7 +32,7 @@ This pattern points to sustained rendering/composition work, not proof of a pack
 - The main app carousel already allocates animation arrays for the visible window and only animates during D-pad moves. Its adaptive glow drawable builds the `SweepGradient` on bounds changes, not inside `draw()`.
 - Continue Watching provider reads and poster downloads/decode are submitted to worker executors; refresh notifications are coalesced.
 - Wallpaper bitmap decoding and HUD palette sampling are performed off the main thread.
-- The TV evidence does not yet prove whether disabling the continuous zoom is sufficient. Compare CPU after installing a built version with this one setting changed; if RenderThread remains high while idle, capture a short Android GPU/system trace before larger architectural changes.
+- Historical note (superseded): earlier builds retained a disabled zoom implementation. The current follow-up removes the animator and its configuration entirely. Validate the current branch with a same-scene TV comparison before attributing a CPU reduction.
 
 ## Validation status
 
@@ -43,7 +47,7 @@ This pattern points to sustained rendering/composition work, not proof of a pack
 
 ### Implementation in `perf/event-driven-refresh-and-cpu`
 
-- Keep the existing disabled-by-default full-screen wallpaper zoom. Wallpaper rotation and crossfade remain unchanged.
+- At that time, the disabled-by-default zoom implementation was retained; the 2026-10-29 follow-up removes it entirely. Wallpaper rotation and crossfade remain unchanged.
 - Replace repeated app-intent discovery with cached lightweight metadata. The metadata cache is invalidated when Android's `LauncherApps.Callback` reports installed-package or launchability changes; the callback is registered for the Activity lifetime so changes while another app is foreground are not missed. If callback registration is unavailable, the cache is invalidated on resume as a fallback; UI refresh is debounced and only runs while the launcher is resumed.
 - Rank recent apps using the same UsageStats/local-history logic before loading artwork, so the main row materializes artwork only for its visible top five.
 - Build the pinned-app wheel from the pinned package set instead of loading artwork for every installed app and then discarding most results.
@@ -77,7 +81,7 @@ This pattern points to sustained rendering/composition work, not proof of a pack
 - `MainActivity.animateAdaptiveHudAccent()` mantenía una animación del HUD de 5.2 segundos tras el cambio de fondo; el intervalo de rotación del fondo es de 10 segundos. En cada frame se convertían extremos HSV, se asignaban sombras/colores de cristal y se invalidaba el indicador de foco aunque algunos valores no cambiasen.
 - La adaptación del color se conserva, pero la transición se reduce a 1.8 segundos y las actualizaciones visibles se limitan a unas 30 por segundo. Los extremos HSV y buffers de color se reutilizan; color de texto, sombras, cristal del tiempo y punto de foco solo se modifican cuando el valor renderizado cambia.
 - El diálogo OTA ahora presenta solo la versión instalada → disponible y una frase corta de verificación. El nombre visible pasa a `1.0.N`; el `versionCode` Android permanece creciente y se añade como metadato al tag `v1.0.N+CODE`, de modo que el instalador mantiene sus comparaciones y verificaciones.
-- El zoom opcional del fondo permanece disponible y desactivado por defecto. La rotación de fondos, crossfade, carruseles, aplicaciones fijadas, Continuar viendo y actualización segura se conservan.
+- En esa revisión histórica el zoom se conservaba desactivado; después se eliminó por completo. La rotación de fondos, crossfade, carruseles, aplicaciones fijadas, Continuar viendo y actualización segura se conservan.
 
 ### Verificación pendiente
 
@@ -95,7 +99,7 @@ This pattern points to sustained rendering/composition work, not proof of a pack
 
 ### Changes made on `perf/deep-idle-render-optimization`
 
-- Set `LauncherConfig.DEFAULT_MOTION_ENABLED` to `false`, matching `config.xml`. The fallback path can no longer accidentally enable the infinite wallpaper zoom if resource loading fails.
+- In that historical pass the motion default was changed to disabled. The 2026-10-29 follow-up then deleted the motion animator and all related settings.
 - Made wallpaper rotation event-driven: do not schedule a timer when no local wallpapers exist, do not force an immediate crossfade on every resume, and do not repeat the timer after displaying a single available photo. Rotation and the 600 ms crossfade remain available when multiple photos exist.
 - Shortened the wallpaper-adaptive HUD color transition from 1.8 s to 0.9 s, limited color updates to at most one every 50 ms, and applied visually negligible RGB changes directly rather than starting an animation.
 - Reused the adaptive glow's normalized perimeter palette and gradient when the palette has not changed. Repeated assignments of the same alpha or color filter no longer invalidate the drawable.
@@ -117,7 +121,7 @@ No UI component, navigation behavior, Watch Next feature, wallpaper crossfade, o
 - Removed the Activity's 60 Hz preferred-mode request from both startup and resume. The launcher no longer calls `WindowManager.LayoutParams.preferredRefreshRate` or `preferredDisplayModeId`, nor registers a display listener solely to log refresh changes.
 - Removed the now-unused `DisplayModeSelector` helper and its dedicated tests from the standalone unit-test runner. Android/TV display policy now selects the refresh mode; the app does not claim a target refresh rate or equate Hz with rendered FPS.
 - Removed boxed per-slot angle storage from the pinned-app wheel animation. The same deterministic starting angle is calculated from the slot index when needed; card trajectories and per-frame focus-marker behavior remain unchanged.
-- Existing source review confirms wallpaper zoom is disabled by default and its fallback default is also false; wallpaper changes still crossfade. The adaptive glow builds gradients on bounds/palette changes rather than inside `draw()`; app/Continue Watching data and artwork work is already off the UI thread.
+- The current source no longer contains a wallpaper motion animator or motion configuration. Wallpaper changes still crossfade. The adaptive glow builds gradients on bounds/palette changes rather than inside `draw()`; app/Continue Watching data and artwork work is already off the UI thread.
 - **Verification still required:** hosted CI/build and on-TV comparison have not run for this new branch yet. Removing the refresh-rate preference is a source-level behavior change, not proof of an FPS improvement. Recheck frame statistics on the TV after a compatible APK is built and installed.
 
 

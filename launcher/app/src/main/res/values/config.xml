@@ -3,10 +3,6 @@
     <!-- Cinematic Background & Google Photos Configuration (Annex C.2, C.3) -->
     <integer name="background_rotation_interval_sec">10</integer>
     <integer name="background_crossfade_duration_ms">600</integer>
-    <!-- Keep the slow zoom effect available as an opt-in, but avoid forcing a full-screen
-         redraw every frame on low-power TV hardware. Wallpaper rotation and crossfade remain on. -->
-    <bool name="background_motion_enabled">false</bool>
-    <integer name="background_motion_duration_sec">40</integer>
 
     <!-- Safe Margins: 5% H, 4% W (Annex C.1) -->
     <dimen name="safe_margin_vertical">27dp</dimen>

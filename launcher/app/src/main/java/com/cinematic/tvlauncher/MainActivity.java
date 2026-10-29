@@ -239,6 +239,12 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
 
             rootContainer.getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus, newFocus) -> {
                 if (newFocus == null || newFocus == focusPositionDot) return;
+                // The manual-update control is intentionally only a floating arrow, not a card
+                // or a target for the carousel's positional marker.
+                if (newFocus.getId() == R.id.btn_check_updates) {
+                    focusPositionDot.setVisibility(View.GONE);
+                    return;
+                }
                 if (rebuildingPinnedWheel) return;
                 // Dedicated carousel callbacks use the card surface/edge, avoiding a transient
                 // marker jump when focus itself is on a containing view.
@@ -262,6 +268,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             pinnedAppsWheel.setClipToPadding(false);
         }
 
+        View btnCheckUpdates = findViewById(R.id.btn_check_updates);
         View btnInputs = findViewById(R.id.btn_inputs);
         View btnWifi = findViewById(R.id.btn_wifi);
         View btnSettings = findViewById(R.id.btn_settings);
@@ -270,13 +277,29 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         TextView tvWifiIcon = findViewById(R.id.tv_wifi_icon);
 
         setupTopControlIllumination(btnInputs, btnWifi, btnSettings, btnPhotos, btnSearch);
+        if (btnCheckUpdates != null) {
+            TextView updateArrow = (TextView) ((ViewGroup) btnCheckUpdates).getChildAt(0);
+            btnCheckUpdates.setOnClickListener(v -> {
+                if (updateManager != null) updateManager.checkNow();
+            });
+            btnCheckUpdates.setOnFocusChangeListener((view, hasFocus) -> {
+                view.setAlpha(hasFocus ? 1f : 0.72f);
+                view.setScaleX(hasFocus ? 1.12f : 1f);
+                view.setScaleY(hasFocus ? 1.12f : 1f);
+                if (updateArrow != null) {
+                    updateArrow.setTextColor(hasFocus ? Color.WHITE : Color.rgb(184, 232, 255));
+                }
+            });
+        }
 
         backgroundManager = new CinematicBackgroundManager(this, bgImageA, bgImageB, launcherConfig);
         backgroundManager.setOnBackgroundChangedListener(this::scheduleAdaptiveHudColors);
         View inputOverlay = findViewById(R.id.input_overlay);
         TvView inputTvView = findViewById(R.id.tv_input_view);
-        controlManager = new TvControlManager(this, btnInputs, btnWifi, btnSettings, btnPhotos, btnSearch, tvWifiIcon, inputOverlay, inputTvView);
-        focusController = new FocusNavigationController(carouselView, btnInputs, btnWifi, btnSettings, btnPhotos, btnSearch);
+        controlManager = new TvControlManager(this, btnInputs, btnWifi, btnSettings, btnPhotos,
+                btnSearch, tvWifiIcon, inputOverlay, inputTvView, backgroundManager);
+        focusController = new FocusNavigationController(carouselView, btnCheckUpdates,
+                btnInputs, btnWifi, btnSettings, btnPhotos, btnSearch);
 
         carouselView.setSelectionListener(this);
         // The navigation marker stays in the fixed center slot. It is updated on selection,
@@ -1591,9 +1614,20 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             int keyCode = event.getKeyCode();
-            if (controlManager != null && (keyCode == KeyEvent.KEYCODE_SETTINGS
-                    || keyCode == KeyEvent.KEYCODE_MENU)) {
-                controlManager.openSettingsFromRemote();
+            if (keyCode == KeyEvent.KEYCODE_SETTINGS || keyCode == KeyEvent.KEYCODE_MENU
+                    || keyCode == KeyEvent.KEYCODE_TV_CONTENTS_MENU) {
+                Log.i(TAG, "Remote settings/menu key received: "
+                        + KeyEvent.keyCodeToString(keyCode));
+                if (controlManager != null) {
+                    if (event.getRepeatCount() > 0) return true;
+                    if (controlManager.openSettingsFromRemote()) return true;
+                }
+                // If our own route fails, preserve Android/Hisense's native key handling.
+            }
+            if (controlManager != null && (keyCode == KeyEvent.KEYCODE_SEARCH
+                    || keyCode == KeyEvent.KEYCODE_ASSIST
+                    || keyCode == KeyEvent.KEYCODE_VOICE_ASSIST)) {
+                if (event.getRepeatCount() == 0) controlManager.openAssistantFromRemote();
                 return true;
             }
             if (controlManager != null && keyCode == KeyEvent.KEYCODE_BACK
@@ -1709,9 +1743,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (controlManager != null && controlManager.handleActivityResult(requestCode, resultCode, data)) {
-            if (backgroundManager != null) backgroundManager.loadLocalBackgrounds();
-        }
+        if (controlManager != null) controlManager.handleActivityResult(requestCode, resultCode, data);
     }
 
     @Override

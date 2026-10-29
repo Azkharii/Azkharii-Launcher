@@ -1,6 +1,7 @@
 package com.cinematic.tvlauncher.controls;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.ComponentName;
@@ -36,9 +37,14 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.cinematic.tvlauncher.R;
+import com.cinematic.tvlauncher.background.CinematicBackgroundManager;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * TvControlManager — Manages the three top-right translucent controls:
@@ -47,6 +53,8 @@ import java.util.List;
  */
 public class TvControlManager {
     private static final String TAG = "TvControlManager";
+    private static final ExecutorService BACKGROUND_IMPORT_EXECUTOR =
+            new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
 
     private final Activity activity;
     private final View btnInputs;
@@ -57,6 +65,7 @@ public class TvControlManager {
     private final TextView tvWifiIcon;
     private final View inputOverlay;
     private final TvView inputTvView;
+    private final CinematicBackgroundManager backgroundManager;
     private TvInputManager tvInputManager;
     private ConnectivityManager connectivityManager;
     private final Handler networkHandler = new Handler(Looper.getMainLooper());
@@ -83,11 +92,20 @@ public class TvControlManager {
         }
     }
 
-    public TvControlManager(Activity activity, View btnInputs, View btnWifi, View btnSettings, View btnPhotos, View btnSearch, TextView tvWifiIcon) {
-        this(activity, btnInputs, btnWifi, btnSettings, btnPhotos, btnSearch, tvWifiIcon, null, null);
+    public TvControlManager(Activity activity, View btnInputs, View btnWifi, View btnSettings,
+            View btnPhotos, View btnSearch, TextView tvWifiIcon) {
+        this(activity, btnInputs, btnWifi, btnSettings, btnPhotos, btnSearch, tvWifiIcon, null, null, null);
     }
 
-    public TvControlManager(Activity activity, View btnInputs, View btnWifi, View btnSettings, View btnPhotos, View btnSearch, TextView tvWifiIcon, View inputOverlay, TvView inputTvView) {
+    public TvControlManager(Activity activity, View btnInputs, View btnWifi, View btnSettings,
+            View btnPhotos, View btnSearch, TextView tvWifiIcon, View inputOverlay, TvView inputTvView) {
+        this(activity, btnInputs, btnWifi, btnSettings, btnPhotos, btnSearch, tvWifiIcon,
+                inputOverlay, inputTvView, null);
+    }
+
+    public TvControlManager(Activity activity, View btnInputs, View btnWifi, View btnSettings,
+            View btnPhotos, View btnSearch, TextView tvWifiIcon, View inputOverlay, TvView inputTvView,
+            CinematicBackgroundManager backgroundManager) {
         this.activity = activity;
         this.btnInputs = btnInputs;
         this.btnWifi = btnWifi;
@@ -97,6 +115,7 @@ public class TvControlManager {
         this.tvWifiIcon = tvWifiIcon;
         this.inputOverlay = inputOverlay;
         this.inputTvView = inputTvView;
+        this.backgroundManager = backgroundManager;
         this.tvInputManager = (TvInputManager) activity.getSystemService(Context.TV_INPUT_SERVICE);
         this.connectivityManager = (ConnectivityManager)
                 activity.getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -165,23 +184,32 @@ public class TvControlManager {
         }
     }
 
+    /** Entry point for physical remotes that send Search/Assist key codes. */
+    public void openAssistantFromRemote() {
+        handleAssistantAction();
+    }
+
     /**
-     * Opens the device's selected system assistant (normally Google Assistant).
-     * Android/OEM firmware chooses the assistant; this app does not hard-code
-     * a Google package name, which would fail on devices with different builds.
+     * Opens the device-selected assistant without hard-coding a Google package.
+     * Some TV firmware exposes VOICE_ASSIST rather than ACTION_ASSIST.
      */
     private void handleAssistantAction() {
-        Intent assistIntent = new Intent(Intent.ACTION_ASSIST);
-        assistIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            activity.startActivity(assistIntent);
-        } catch (ActivityNotFoundException | SecurityException e) {
-            Log.w(TAG, "System assistant is not available for ACTION_ASSIST", e);
-            Toast.makeText(activity, R.string.assistant_unavailable, Toast.LENGTH_LONG).show();
-        } catch (Exception e) {
-            Log.e(TAG, "Unable to open system assistant", e);
-            Toast.makeText(activity, R.string.assistant_unavailable, Toast.LENGTH_LONG).show();
+        Intent[] intents = new Intent[] {
+                new Intent(Intent.ACTION_ASSIST),
+                new Intent(Intent.ACTION_VOICE_COMMAND)
+        };
+        for (Intent intent : intents) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                activity.startActivity(intent);
+                return;
+            } catch (ActivityNotFoundException | SecurityException e) {
+                Log.d(TAG, "Assistant route unavailable for " + intent.getAction(), e);
+            } catch (Exception e) {
+                Log.w(TAG, "Unable to open assistant route " + intent.getAction(), e);
+            }
         }
+        Toast.makeText(activity, R.string.assistant_unavailable, Toast.LENGTH_LONG).show();
     }
 
     /** Opens the Liquid Glass panel for user-chosen local background images. */
@@ -193,11 +221,18 @@ public class TvControlManager {
         dialog.setCanceledOnTouchOutside(true);
 
         TextView chooseButton = panel.findViewById(R.id.btn_choose_backgrounds);
+        TextView manageButton = panel.findViewById(R.id.btn_manage_backgrounds);
         TextView cancelButton = panel.findViewById(R.id.btn_cancel_backgrounds);
         chooseButton.setOnClickListener(v -> {
             dialog.dismiss();
             openBackgroundPicker();
         });
+        if (manageButton != null) {
+            manageButton.setOnClickListener(v -> {
+                dialog.dismiss();
+                showManagedBackgroundsDialog();
+            });
+        }
         cancelButton.setOnClickListener(v -> dialog.dismiss());
 
         Window window = dialog.getWindow();
@@ -228,6 +263,177 @@ public class TvControlManager {
         chooseButton.requestFocus();
     }
 
+
+    private void showManagedBackgroundsDialog() {
+        if (backgroundManager == null) {
+            Toast.makeText(activity, "La gestión de fondos no está disponible.", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        Dialog dialog = new Dialog(activity);
+        android.widget.LinearLayout content = new android.widget.LinearLayout(activity);
+        content.setOrientation(android.widget.LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(18), dp(20), dp(18));
+        content.setBackgroundResource(R.drawable.liquid_glass_dialog_bg);
+
+        TextView title = new TextView(activity);
+        title.setText("MIS FONDOS");
+        title.setTextColor(android.graphics.Color.WHITE);
+        title.setTextSize(20);
+        title.setTypeface(android.graphics.Typeface.create(
+                "sans-serif-medium", android.graphics.Typeface.BOLD));
+        content.addView(title);
+
+        TextView current = new TextView(activity);
+        current.setTextColor(0xFFB8DFF5);
+        current.setTextSize(12);
+        current.setPadding(0, dp(6), 0, dp(12));
+        content.addView(current);
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
+        scroll.setFillViewport(true);
+        android.widget.LinearLayout list = new android.widget.LinearLayout(activity);
+        list.setOrientation(android.widget.LinearLayout.VERTICAL);
+        scroll.addView(list, new android.widget.ScrollView.LayoutParams(-1, -2));
+        content.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1, dp(260)));
+
+        TextView close = new TextView(activity);
+        close.setText("CERRAR");
+        close.setGravity(android.view.Gravity.CENTER);
+        close.setTextColor(android.graphics.Color.WHITE);
+        close.setTextSize(13);
+        close.setFocusable(true);
+        close.setClickable(true);
+        close.setBackgroundResource(R.drawable.liquid_glass_action_bg);
+        android.widget.LinearLayout.LayoutParams closeParams =
+                new android.widget.LinearLayout.LayoutParams(-1, dp(44));
+        closeParams.topMargin = dp(10);
+        content.addView(close, closeParams);
+        close.setOnClickListener(v -> dialog.dismiss());
+
+        dialog.setContentView(content);
+        dialog.setCancelable(true);
+        populateManagedBackgroundRows(list, current, dialog);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.width = Math.min(dp(560),
+                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.82f));
+            attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            attributes.dimAmount = 0.22f;
+            window.setAttributes(attributes);
+            window.setGravity(android.view.Gravity.CENTER);
+        }
+        dialog.show();
+        if (window != null) {
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.width = Math.min(dp(560),
+                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.82f));
+            attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            window.setAttributes(attributes);
+        }
+        close.requestFocus();
+    }
+
+    private void populateManagedBackgroundRows(
+            android.widget.LinearLayout list, TextView current, Dialog dialog) {
+        list.removeAllViews();
+        File active = backgroundManager.getCurrentWallpaperFile();
+        current.setText(active == null
+                ? "Fondo mostrado: predeterminado o no identificado"
+                : "Fondo mostrado: " + displayBackgroundName(active));
+
+        List<File> files = backgroundManager.getManagedBackgrounds();
+        if (files.isEmpty()) {
+            TextView empty = new TextView(activity);
+            empty.setText("No hay fondos importados. Usa «Elegir fotos» para añadirlos.");
+            empty.setTextColor(0xFFCFD8E3);
+            empty.setTextSize(14);
+            empty.setPadding(0, dp(14), 0, dp(14));
+            list.addView(empty);
+            return;
+        }
+
+        for (File file : files) {
+            android.widget.LinearLayout row = new android.widget.LinearLayout(activity);
+            row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(4), 0, dp(4));
+
+            TextView name = new TextView(activity);
+            name.setText(displayBackgroundName(file));
+            name.setTextColor(android.graphics.Color.WHITE);
+            name.setTextSize(11);
+            name.setMaxLines(2);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+            row.addView(name, new android.widget.LinearLayout.LayoutParams(0, dp(44), 1f));
+
+            TextView use = new TextView(activity);
+            use.setText("USAR");
+            use.setGravity(android.view.Gravity.CENTER);
+            use.setTextColor(0xFFB8E8FF);
+            use.setTextSize(11);
+            use.setFocusable(true);
+            use.setClickable(true);
+            use.setBackgroundResource(R.drawable.liquid_glass_action_bg);
+            android.widget.LinearLayout.LayoutParams useParams =
+                    new android.widget.LinearLayout.LayoutParams(dp(62), dp(40));
+            useParams.setMargins(dp(4), 0, dp(4), 0);
+            row.addView(use, useParams);
+            use.setOnClickListener(v -> {
+                if (backgroundManager.showWallpaper(file)) {
+                    dialog.dismiss();
+                    Toast.makeText(activity, "Cambiando al fondo seleccionado…",
+                            Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(activity, "No se pudo cargar ese fondo.",
+                            Toast.LENGTH_LONG).show();
+                }
+            });
+
+            TextView remove = new TextView(activity);
+            remove.setText("BORRAR");
+            remove.setGravity(android.view.Gravity.CENTER);
+            remove.setTextColor(0xFFFFC7C7);
+            remove.setTextSize(10);
+            remove.setFocusable(true);
+            remove.setClickable(true);
+            remove.setBackgroundResource(R.drawable.liquid_glass_action_bg);
+            android.widget.LinearLayout.LayoutParams removeParams =
+                    new android.widget.LinearLayout.LayoutParams(dp(66), dp(40));
+            row.addView(remove, removeParams);
+            remove.setOnClickListener(v -> new AlertDialog.Builder(activity)
+                    .setTitle("Eliminar fondo")
+                    .setMessage("Se eliminará la copia guardada dentro de Cinematic TV. Esta acción no borra la imagen original de la galería.\n\n"
+                            + displayBackgroundName(file))
+                    .setNegativeButton("Cancelar", null)
+                    .setPositiveButton("Eliminar", (d, which) -> {
+                        if (backgroundManager.deleteManagedBackground(file)) {
+                            Toast.makeText(activity, "Fondo eliminado de Cinematic TV.",
+                                    Toast.LENGTH_SHORT).show();
+                            populateManagedBackgroundRows(list, current, dialog);
+                        } else {
+                            Toast.makeText(activity, "No se pudo eliminar ese fondo.",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    }).show());
+
+            list.addView(row, new android.widget.LinearLayout.LayoutParams(-1, dp(48)));
+        }
+    }
+
+    private String displayBackgroundName(File file) {
+        if (file == null) return "Fondo";
+        String name = file.getName();
+        if (name.startsWith("custom_background_")) {
+            String[] parts = name.split("_", 7);
+            if (parts.length == 7 && !parts[6].trim().isEmpty()) return parts[6];
+        }
+        return name;
+    }
+
     private void openBackgroundPicker() {
         Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         picker.addCategory(Intent.CATEGORY_OPENABLE);
@@ -248,26 +454,66 @@ public class TvControlManager {
         if (requestCode != REQUEST_PICK_BACKGROUND_IMAGES) return false;
         if (resultCode != Activity.RESULT_OK || data == null) return true;
 
-        File directory = activity.getExternalFilesDir("CinematicBackgrounds");
-        if (directory == null || (!directory.exists() && !directory.mkdirs())) {
-            Toast.makeText(activity, "No se pudo preparar la carpeta de fondos", Toast.LENGTH_LONG).show();
-            return true;
-        }
-
-        int imported = 0;
+        List<Uri> selected = new ArrayList<>();
         ClipData clip = data.getClipData();
         if (clip != null) {
             for (int i = 0; i < clip.getItemCount(); i++) {
-                if (copyImage(clip.getItemAt(i).getUri(), directory, i)) imported++;
+                Uri uri = clip.getItemAt(i).getUri();
+                if (uri != null) selected.add(uri);
             }
-        } else if (data.getData() != null && copyImage(data.getData(), directory, 0)) {
-            imported++;
+        } else if (data.getData() != null) {
+            selected.add(data.getData());
+        }
+        if (selected.isEmpty()) {
+            Toast.makeText(activity, "No se seleccionaron imágenes", Toast.LENGTH_SHORT).show();
+            return true;
         }
 
-        if (imported > 0) {
-            Toast.makeText(activity, "Fondos personalizados importados: " + imported, Toast.LENGTH_LONG).show();
-        } else {
-            Toast.makeText(activity, "No se pudo importar ninguna foto", Toast.LENGTH_LONG).show();
+        // ACTION_OPEN_DOCUMENT can return persistable grants. Keep them where supported so a
+        // delayed worker import never loses access while the picker activity is gone.
+        int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        if ((flags & Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+            for (Uri uri : selected) {
+                try {
+                    activity.getContentResolver().takePersistableUriPermission(
+                            uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } catch (SecurityException ignored) {
+                    // Immediate import still works for providers that do not support persistence.
+                }
+            }
+        }
+
+        try {
+            BACKGROUND_IMPORT_EXECUTOR.execute(() -> {
+                File directory = new File(activity.getFilesDir(), "CinematicBackgrounds");
+                if (!directory.exists() && !directory.mkdirs()) {
+                    networkHandler.post(() -> Toast.makeText(activity,
+                            "No se pudo preparar el almacenamiento privado de fondos.",
+                            Toast.LENGTH_LONG).show());
+                    return;
+                }
+
+                int imported = 0;
+                for (int i = 0; i < selected.size(); i++) {
+                    if (copyImage(selected.get(i), directory, i)) imported++;
+                }
+                final int importedCount = imported;
+                networkHandler.post(() -> {
+                    if (importedCount > 0) {
+                        if (backgroundManager != null) backgroundManager.loadLocalBackgrounds();
+                        Toast.makeText(activity,
+                                "Fondos guardados dentro de Cinematic TV: " + importedCount,
+                                Toast.LENGTH_LONG).show();
+                    } else {
+                        Toast.makeText(activity,
+                                "No se pudo importar ninguna imagen.",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            Toast.makeText(activity, "No se pudo iniciar la importación de fondos.", Toast.LENGTH_LONG).show();
         }
         return true;
     }
@@ -279,14 +525,40 @@ public class TvControlManager {
         if ("image/png".equalsIgnoreCase(mimeType)) extension = "png";
         else if ("image/webp".equalsIgnoreCase(mimeType)) extension = "webp";
         else if ("image/jpeg".equalsIgnoreCase(mimeType) || "image/jpg".equalsIgnoreCase(mimeType)) extension = "jpg";
-        File target = new File(directory, "custom_background_" + stamp + "_" + index + "." + extension);
-        try (InputStream input = activity.getContentResolver().openInputStream(uri);
-             OutputStream output = new FileOutputStream(target)) {
+
+        String displayName = null;
+        android.database.Cursor cursor = null;
+        try {
+            cursor = activity.getContentResolver().query(
+                    uri, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int column = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (column >= 0) displayName = cursor.getString(column);
+            }
+        } catch (RuntimeException e) {
+            Log.d(TAG, "Source image name is unavailable; using a generic label.", e);
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+
+        String readableName = displayName == null ? "fondo" : displayName.trim();
+        int dot = readableName.lastIndexOf('.');
+        if (dot > 0) readableName = readableName.substring(0, dot);
+        readableName = readableName.replaceAll("[^A-Za-z0-9._-]", "_");
+        readableName = readableName.replaceAll("_+", "_");
+        if (readableName.length() > 56) readableName = readableName.substring(0, 56);
+        if (readableName.isEmpty()) readableName = "fondo";
+
+        File target = new File(directory, "custom_background_" + stamp + "_" + index
+                + "_" + readableName + "." + extension);
+        try (InputStream input = activity.getContentResolver().openInputStream(uri)) {
             if (input == null) return false;
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-            return target.length() > 0;
+            try (OutputStream output = new FileOutputStream(target)) {
+                byte[] buffer = new byte[16 * 1024];
+                int read;
+                while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+            }
+            return target.isFile() && target.length() > 0L;
         } catch (Exception e) {
             Log.w(TAG, "Unable to import selected background image", e);
             if (target.exists()) target.delete();
@@ -588,13 +860,19 @@ public class TvControlManager {
      * Open verified TV settings intent with fallback.
      */
     /** Entry point for remotes that emit KEYCODE_SETTINGS or KEYCODE_MENU. */
-    public void openSettingsFromRemote() {
-        handleSettingsAction();
+    public boolean openSettingsFromRemote() {
+        // If no route can be launched, let Activity.dispatchKeyEvent delegate the original
+        // physical key to Android/OEM handling instead of swallowing it.
+        return handleSettingsAction(false);
     }
 
     private void handleSettingsAction() {
+        handleSettingsAction(true);
+    }
+
+    private boolean handleSettingsAction(boolean showUnavailableToast) {
         Intent[] settingsIntents = new Intent[] {
-                new Intent("android.settings.TV_SETTINGS"), // Leanback / Android TV settings
+                new Intent("android.settings.TV_SETTINGS"), // OEM / Android TV settings
                 new Intent(Settings.ACTION_SETTINGS)
         };
 
@@ -602,10 +880,71 @@ public class TvControlManager {
             try {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 activity.startActivity(intent);
-                return;
-            } catch (Exception ignored) {}
+                Log.i(TAG, "Opened system settings with action " + intent.getAction());
+                return true;
+            } catch (ActivityNotFoundException | SecurityException e) {
+                Log.w(TAG, "System settings action unavailable: " + intent.getAction(), e);
+            } catch (Exception e) {
+                Log.w(TAG, "Could not launch system settings action: " + intent.getAction(), e);
+            }
         }
 
-        Toast.makeText(activity, "Ajustes del sistema no disponibles", Toast.LENGTH_SHORT).show();
+        // Some OEM TV builds do not publish either implicit settings action. As a fallback,
+        // search only the TV-launchable activities that Android already exposes to this app.
+        try {
+            Intent leanback = new Intent(Intent.ACTION_MAIN);
+            leanback.addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
+            List<ResolveInfo> candidates = activity.getPackageManager()
+                    .queryIntentActivities(leanback, 0);
+            ResolveInfo best = null;
+            int bestScore = 0;
+            for (ResolveInfo candidate : candidates) {
+                if (candidate == null || candidate.activityInfo == null) continue;
+                String packageName = candidate.activityInfo.packageName;
+                if (packageName == null || packageName.equals(activity.getPackageName())) continue;
+                CharSequence label;
+                try {
+                    label = candidate.loadLabel(activity.getPackageManager());
+                } catch (Exception ignored) {
+                    label = "";
+                }
+                String identity = (packageName + " " + candidate.activityInfo.name + " "
+                        + String.valueOf(label)).toLowerCase(Locale.ROOT);
+                int score = 0;
+                if (identity.contains("settings") || identity.contains("ajustes")
+                        || identity.contains("configuración") || identity.contains("configuracion")) {
+                    score = 100;
+                }
+                if (identity.contains("hisense") && score > 0) score += 30;
+                if (identity.contains("tv.settings") || identity.contains("tvsettings")) score += 20;
+                if (score > bestScore) {
+                    best = candidate;
+                    bestScore = score;
+                }
+            }
+
+            if (best != null) {
+                Intent launch = new Intent(Intent.ACTION_MAIN);
+                launch.addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
+                launch.setComponent(new ComponentName(
+                        best.activityInfo.packageName, best.activityInfo.name));
+                launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                activity.startActivity(launch);
+                Log.i(TAG, "Opened TV settings activity fallback: "
+                        + best.activityInfo.packageName + "/" + best.activityInfo.name);
+                return true;
+            }
+        } catch (ActivityNotFoundException | SecurityException e) {
+            Log.w(TAG, "Could not launch the TV settings activity fallback", e);
+        } catch (Exception e) {
+            Log.w(TAG, "Failed while looking for a TV settings activity", e);
+        }
+
+        if (showUnavailableToast) {
+            Toast.makeText(activity,
+                    "No se pudieron abrir Ajustes. El sistema no expuso una actividad compatible.",
+                    Toast.LENGTH_LONG).show();
+        }
+        return false;
     }
 }
