@@ -169,3 +169,18 @@ No UI component, navigation behavior, Watch Next feature, wallpaper crossfade, o
 - Full-screen crossfade default is now 260 ms (was 400 ms). Adaptive HUD sampling uses 576 pixels instead of 1,344; its color transition is 360 ms instead of 600 ms, with color updates bounded to around 15 per second. Decode and palette sampling remain off the UI thread.
 - The recent-app carousel and app library attach their adaptive edge only while they actually own focus, rather than retaining illumination based solely on selected index. RAM and CPU HUD sampling stop together and the overlay is hidden whenever the app library covers the home screen.
 - **Measurement status:** the reported CPU increase at a wallpaper change is about 10–11%; no controlled post-change measurement exists yet. These changes target overlapping transition/cache work; compare the same scenario on the TV before concluding the target has been met.
+
+
+## Follow-up — idle RAM and navigation render-layer lifetime (2026-10-29)
+
+### Source-level changes
+
+- The CPU/PSS diagnostic HUD is no longer instantiated on every home-screen launch. It is debug-only and opt-in using the Activity extra `com.cinematic.tvlauncher.EXTRA_PERFORMANCE_HUD`; normal sessions avoid recurring memory sampling and diagnostic TextView updates.
+- Pinned-app icons no longer keep hardware render layers while the launcher is static. Existing wheel cards and the incoming card are promoted for D-pad movement, then returned to software/default layer mode after 1.2 seconds without another move. Pause and destroy also release retained layers.
+- Continue Watching similarly releases its visible card layers after 1.2 seconds of navigation inactivity and when background work is paused/detached. The grace interval keeps fast repeated D-pad movement smooth without retaining those GPU layers forever.
+- Existing transforms, animation durations/easing, focus logic, glow colors, card layout, and card order are unchanged. The main app carousel already promotes layers during its short position animation and releases them at animation completion, so it is deliberately unchanged.
+
+### Validation boundary
+
+- Hosted integrity checks, unit tests, and Android debug/release builds must pass before this change is build-validated.
+- Dynamic hardware-layer promotion trades a small layer-recreation cost on the first key press after idle for lower idle graphics-memory retention. Exact CPU/RAM impact still requires matched before/after measurements on the target TV using `dumpsys meminfo`, `top`, and frame-jank samples. No device-side percentage improvement is claimed before that comparison.

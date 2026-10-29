@@ -20,8 +20,10 @@ javac -d "$BUILD_DIR" \
     launcher/app/src/main/java/com/cinematic/tvlauncher/WatchNextEntryPolicy.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/UpdateVersionPolicy.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/WeatherRefreshPolicy.java \
+    launcher/app/src/main/java/com/cinematic/tvlauncher/WeatherIconPolicy.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/UpdateVersionPolicyTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/WeatherRefreshPolicyTest.java \
+    launcher/app/src/test/java/com/cinematic/tvlauncher/WeatherIconPolicyTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/WatchNextEntryPolicyTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/PinnedWheelSlotOrderTest.java \
     launcher/app/src/test/java/android/content/Context.java \

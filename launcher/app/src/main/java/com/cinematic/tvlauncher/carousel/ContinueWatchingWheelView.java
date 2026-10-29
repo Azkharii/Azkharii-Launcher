@@ -86,8 +86,10 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             Color.rgb(80, 170, 255), Color.rgb(70, 145, 230),
             Color.rgb(85, 155, 245), Color.rgb(100, 180, 250)
     };
+    private static final long CARD_LAYER_IDLE_RELEASE_MS = 1200L;
     private final Handler refreshHandler = new Handler(Looper.getMainLooper());
     private final Runnable scheduledRefresh = this::refreshFromSystem;
+    private final Runnable releaseWheelHardwareLayersRunnable = this::releaseWheelHardwareLayers;
     private WatchNextRepository watchNextRepository;
     private int refreshGeneration;
     private volatile boolean hostPaused = true;
@@ -192,6 +194,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         refreshGeneration++;
         artworkGeneration.incrementAndGet();
         refreshHandler.removeCallbacks(scheduledRefresh);
+        refreshHandler.removeCallbacks(releaseWheelHardwareLayersRunnable);
+        releaseWheelHardwareLayers();
         watchNextRepository.unregisterObserver();
         Future<?> query = dataTask;
         dataTask = null;
@@ -475,8 +479,6 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         outer.setClipChildren(false);
         outer.setClipToPadding(false);
         outer.setBackgroundColor(Color.TRANSPARENT);
-        // The small visible set moves repeatedly; retain its render layers between selections.
-        outer.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         outer.setContentDescription(item.title);
         outer.setOnClickListener(v -> activate(item));
         // Keep the artwork card clean: no mirrored side strip or black fade beside the poster.
@@ -797,6 +799,9 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         float[] incomingFrom = cardTransform(incomingAngle);
         float[] incomingTo = cardTransform(targetAngle);
         applyCardTransform(incoming, incomingFrom);
+        // Retain fast transforms while navigating, but don't pin GPU layers indefinitely.
+        refreshHandler.removeCallbacks(releaseWheelHardwareLayersRunnable);
+        promoteWheelHardwareLayers();
         animating = true;
         android.animation.ValueAnimator animator = android.animation.ValueAnimator.ofFloat(0f, 1f);
         animator.setDuration(220);
@@ -830,13 +835,38 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 }
                 selectedIndex = newSelection;
                 animating = false;
+                scheduleWheelHardwareLayerRelease();
             }
 
             @Override public void onAnimationCancel(android.animation.Animator animation) {
                 animating = false;
+                scheduleWheelHardwareLayerRelease();
             }
         });
         animator.start();
+    }
+
+    private void promoteWheelHardwareLayers() {
+        for (int i = 0; i < getChildCount(); i++) {
+            View child = getChildAt(i);
+            if (child.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+                child.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+            }
+        }
+    }
+
+    private void scheduleWheelHardwareLayerRelease() {
+        refreshHandler.removeCallbacks(releaseWheelHardwareLayersRunnable);
+        refreshHandler.postDelayed(releaseWheelHardwareLayersRunnable, CARD_LAYER_IDLE_RELEASE_MS);
+    }
+
+    private void releaseWheelHardwareLayers() {
+        for (int i = 0; i < getChildCount(); i++) {
+            View child = getChildAt(i);
+            if (child.getLayerType() != View.LAYER_TYPE_NONE) {
+                child.setLayerType(View.LAYER_TYPE_NONE, null);
+            }
+        }
     }
 
     private void activate(MediaItem item) {
