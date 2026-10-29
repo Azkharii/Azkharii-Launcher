@@ -50,6 +50,7 @@ public class CinematicBackgroundManager {
     private Future<?> pendingDecode;
     private final AtomicLong workGeneration = new AtomicLong();
     private boolean crossfadeInProgress = false;
+    private boolean hasRealWallpaperLoaded = false;
     private Runnable backgroundChangedListener;
 
     private final Runnable rotationRunnable = new Runnable() {
@@ -99,7 +100,7 @@ public class CinematicBackgroundManager {
     /** Arms the next rotation only while visible and only when a real wallpaper is available. */
     private void scheduleRotationIfAvailable() {
         mainHandler.removeCallbacks(rotationRunnable);
-        if (isVisible && !destroyed && !queue.isEmpty()) {
+        if (isVisible && !destroyed && queue.size() > 1) {
             mainHandler.postDelayed(rotationRunnable, config.getRotationIntervalSec() * 1000L);
         }
     }
@@ -129,9 +130,15 @@ public class CinematicBackgroundManager {
                 if (destroyed || Thread.currentThread().isInterrupted()) return;
                 queue.setImages(images);
                 Log.i(TAG, "Loaded " + images.size() + " local background images");
-                // Start the timer only when there is work to do and never rotate on the
-                // resume frame. This avoids an unnecessary wakeup/repaint when no photos exist.
-                mainHandler.post(this::scheduleRotationIfAvailable);
+                // Do not make the first real wallpaper wait through the normal 10-second
+                // rotation interval. Decode it immediately after discovery, off the UI thread.
+                mainHandler.post(() -> {
+                    if (isVisible && !destroyed && !hasRealWallpaperLoaded && !queue.isEmpty()) {
+                        rotateToNext();
+                    } else {
+                        scheduleRotationIfAvailable();
+                    }
+                });
             } catch (Exception e) {
                 Log.w(TAG, "Error discovering local background photos", e);
             }
@@ -152,8 +159,13 @@ public class CinematicBackgroundManager {
         if (destroyed) return;
         isVisible = true;
         workGeneration.incrementAndGet();
-        // Resume from the static frame; rotate on schedule rather than immediately repainting.
-        scheduleRotationIfAvailable();
+        // On cold start, show the first real wallpaper as soon as the local queue is ready.
+        // Once one has loaded, preserve the current image and resume normal timed rotation.
+        if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
+            rotateToNext();
+        } else {
+            scheduleRotationIfAvailable();
+        }
 
         if (config.isMotionEnabled()) {
             startSubtleMotion();
@@ -249,7 +261,9 @@ public class CinematicBackgroundManager {
                 front.setScaleX(1f);
                 front.setScaleY(1f);
                 isFrontA = !isFrontA;
+                hasRealWallpaperLoaded = true;
                 crossfadeInProgress = false;
+                scheduleRotationIfAvailable();
                 if (crossfadeAnimator == crossfade) crossfadeAnimator = null;
                 if (isVisible && !destroyed) notifyBackgroundChanged();
             }

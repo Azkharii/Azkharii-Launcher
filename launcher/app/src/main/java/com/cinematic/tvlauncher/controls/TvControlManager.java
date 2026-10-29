@@ -587,6 +587,11 @@ public class TvControlManager {
      * Settings Control (Annex C.5):
      * Open verified TV settings intent with fallback.
      */
+    /** Entry point for remotes that emit KEYCODE_SETTINGS or KEYCODE_MENU. */
+    public void openSettingsFromRemote() {
+        handleSettingsAction();
+    }
+
     private void handleSettingsAction() {
         Intent[] settingsIntents = new Intent[] {
                 new Intent("android.settings.TV_SETTINGS"), // Leanback / Android TV settings

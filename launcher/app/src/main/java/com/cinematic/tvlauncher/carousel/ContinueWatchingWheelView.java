@@ -72,8 +72,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         ARTWORK_EXECUTOR.allowCoreThreadTimeOut(true);
     }
     private static final int MAX_ARTWORK_SOURCE_BYTES = 6 * 1024 * 1024;
-    // Keep recently used poster bitmaps in memory so D-pad navigation never re-downloads/re-decodes them.
-    private static final LruCache<String, Bitmap> ARTWORK_CACHE = new LruCache<String, Bitmap>(12 * 1024) {
+    // Bound poster bitmap retention; 8 MiB still covers the visible wheel without holding a large artwork history.
+    private static final LruCache<String, Bitmap> ARTWORK_CACHE = new LruCache<String, Bitmap>(8 * 1024) {
         @Override protected int sizeOf(String key, Bitmap bitmap) {
             return Math.max(1, bitmap.getByteCount() / 1024);
         }
@@ -416,8 +416,10 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         String scheme = uri.getScheme();
         if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
             URLConnection connection = new URL(uri.toString()).openConnection();
-            connection.setConnectTimeout(3500);
-            connection.setReadTimeout(4000);
+            // Bound slow publisher endpoints so later visible posters are not held up
+            // behind multiple long network timeouts in the three-worker queue.
+            connection.setConnectTimeout(2000);
+            connection.setReadTimeout(2500);
             connection.setUseCaches(true);
             connection.setRequestProperty("Accept", "image/*,*/*;q=0.5");
             return connection.getInputStream();

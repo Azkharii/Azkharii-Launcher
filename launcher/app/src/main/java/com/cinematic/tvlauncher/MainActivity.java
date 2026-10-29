@@ -80,6 +80,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private CinematicBackgroundManager backgroundManager;
     private AppDiscoveryManager discoveryManager;
     private TvControlManager controlManager;
+    private PerformanceHud performanceHud;
     private FocusNavigationController focusController;
     private LauncherConfig launcherConfig;
 
@@ -209,6 +210,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         carouselView.setMaxVisibleCardDistance(2);
         safeContainer = findViewById(R.id.safe_container);
         rootContainer = findViewById(R.id.root_container);
+        if (rootContainer != null) performanceHud = new PerformanceHud(this, rootContainer);
         libraryOverlay = findViewById(R.id.app_library_overlay);
         libraryCarousel = findViewById(R.id.library_carousel);
         librarySelectedLabel = findViewById(R.id.library_selected_label);
@@ -1521,6 +1523,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     protected void onResume() {
         super.onResume();
         activityResumed = true;
+        if (performanceHud != null) performanceHud.start();
         if (backgroundManager != null) {
             backgroundManager.onResume();
         }
@@ -1588,6 +1591,11 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             int keyCode = event.getKeyCode();
+            if (controlManager != null && (keyCode == KeyEvent.KEYCODE_SETTINGS
+                    || keyCode == KeyEvent.KEYCODE_MENU)) {
+                controlManager.openSettingsFromRemote();
+                return true;
+            }
             if (controlManager != null && keyCode == KeyEvent.KEYCODE_BACK
                     && controlManager.closeInputOverlay()) return true;
             if (libraryVisible && (keyCode == KeyEvent.KEYCODE_DPAD_UP
@@ -1634,6 +1642,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     protected void onPause() {
         super.onPause();
         activityResumed = false;
+        if (performanceHud != null) performanceHud.stop();
         lifecycleHandler.removeCallbacks(packageRefreshRunnable);
         if (controlManager != null) controlManager.onPause();
         if (updateManager != null) updateManager.onPause();
@@ -1653,6 +1662,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     @Override
     protected void onDestroy() {
         activityResumed = false;
+        if (performanceHud != null) performanceHud.close();
         unregisterLauncherAppsCallback();
         if (updateManager != null) updateManager.close();
         if (hudColorAnimator != null) hudColorAnimator.cancel();
