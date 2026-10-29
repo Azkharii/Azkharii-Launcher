@@ -195,9 +195,9 @@ public final class WeatherWidgetManager {
         if (label == null) return;
         String summary = preferences.getString(KEY_SUMMARY, null);
         String location = preferences.getString(KEY_LOCATION, null);
-        long updated = preferences.getLong(KEY_UPDATED, 0L);
-        if (summary != null && location != null
-                && System.currentTimeMillis() - updated < 6L * 60L * 60L * 1000L) {
+        // Keep the last known weather visible until a newer response replaces it,
+        // even when the cache is older than six hours or the network is unavailable.
+        if (summary != null && location != null) {
             render(summary, location);
         } else if (hasLocationPermission()) {
             showStatus("Clima · buscando ubicación");
