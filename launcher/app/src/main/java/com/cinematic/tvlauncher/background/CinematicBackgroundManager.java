@@ -227,6 +227,7 @@ public class CinematicBackgroundManager {
                 deletingCurrent = canonicalFile.equals(currentWallpaperFile.getCanonicalFile());
             }
             if (!canonicalFile.delete()) return false;
+            queue.removeImage(file);
 
             if (deletingCurrent) {
                 // Drop any decode/crossfade associated with the removed file and restore a valid
