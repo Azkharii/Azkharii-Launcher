@@ -9,6 +9,9 @@ import android.location.Geocoder;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -46,12 +49,15 @@ public final class WeatherWidgetManager {
     private static final String KEY_SUMMARY = "weather_summary";
     private static final String KEY_LOCATION = "weather_location";
     private static final String KEY_UPDATED = "weather_updated_at";
-    private static final long REFRESH_INTERVAL_MS = 30L * 60L * 1000L;
+    private static final String KEY_LAST_ATTEMPT = "weather_last_attempt_at";
+    private static final String KEY_LATITUDE = "weather_cached_latitude";
+    private static final String KEY_LONGITUDE = "weather_cached_longitude";
     private static final long LOCATION_MAX_AGE_MS = 60L * 60L * 1000L;
 
     private final Activity activity;
     private final TextView label;
     private final SharedPreferences preferences;
+    private final ConnectivityManager connectivityManager;
     private final ExecutorService executor =
             new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -60,6 +66,7 @@ public final class WeatherWidgetManager {
     private Runnable locationTimeout;
     private volatile boolean closed;
     private volatile boolean paused = true;
+    private volatile boolean weatherRequestInProgress;
     private volatile HttpURLConnection activeConnection;
     private volatile Future<?> weatherTask;
 
@@ -67,6 +74,7 @@ public final class WeatherWidgetManager {
         this.activity = activity;
         this.label = label;
         preferences = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        connectivityManager = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (label != null) {
             label.setOnClickListener(v -> handleClick());
             showCachedOrPrompt();
@@ -78,7 +86,13 @@ public final class WeatherWidgetManager {
         paused = false;
         showCachedOrPrompt();
         if (!hasLocationPermission()) return;
-        if (System.currentTimeMillis() - preferences.getLong(KEY_UPDATED, 0L) < REFRESH_INTERVAL_MS) return;
+        if (!hasValidatedInternet()) {
+            showCachedOrUnavailable();
+            return;
+        }
+        long lastAttempt = preferences.getLong(KEY_LAST_ATTEMPT,
+                preferences.getLong(KEY_UPDATED, 0L));
+        if (!WeatherRefreshPolicy.isRefreshDue(lastAttempt, System.currentTimeMillis())) return;
         requestLocation();
     }
 
@@ -126,6 +140,7 @@ public final class WeatherWidgetManager {
         Future<?> task = weatherTask;
         weatherTask = null;
         if (task != null) task.cancel(true);
+        weatherRequestInProgress = false;
         HttpURLConnection connection = activeConnection;
         if (connection != null) connection.disconnect();
     }
@@ -148,7 +163,12 @@ public final class WeatherWidgetManager {
             requestLocationPermission();
             return;
         }
-        preferences.edit().putLong(KEY_UPDATED, 0L).apply();
+        if (!hasValidatedInternet()) {
+            showCachedOrUnavailable();
+            return;
+        }
+        // An explicit tap requests a refresh; ordinary resume remains rate-limited.
+        preferences.edit().putLong(KEY_LAST_ATTEMPT, 0L).apply();
         requestLocation();
     }
 
@@ -186,6 +206,12 @@ public final class WeatherWidgetManager {
 
     private void requestLocation() {
         if (closed || paused || locationRequestInProgress || !hasLocationPermission()) return;
+        if (!hasValidatedInternet()) {
+            showCachedOrUnavailable();
+            return;
+        }
+        // Record the attempt before waiting for location so failures do not cause work on every resume.
+        preferences.edit().putLong(KEY_LAST_ATTEMPT, System.currentTimeMillis()).apply();
         LocationManager manager = (LocationManager) activity.getSystemService(Context.LOCATION_SERVICE);
         if (manager == null) {
             showUnavailable("Ubicación no disponible");
@@ -276,21 +302,31 @@ public final class WeatherWidgetManager {
     }
 
     private void fetchWeather(Location location) {
-        if (closed || paused || location == null) return;
+        if (closed || paused || location == null || weatherRequestInProgress) return;
+        if (!hasValidatedInternet()) {
+            showCachedOrUnavailable();
+            return;
+        }
+        weatherRequestInProgress = true;
         try {
             weatherTask = executor.submit(() -> {
                 HttpURLConnection connection = null;
                 try {
-                    if (closed || paused || Thread.currentThread().isInterrupted()) return;
-                    String city = resolveLocationName(location);
-                    if (closed || paused || Thread.currentThread().isInterrupted()) return;
+                    if (closed || paused || Thread.currentThread().isInterrupted()
+                            || !hasValidatedInternet()) return;
+                    // Reverse geocoding may also use network; reuse the locality for nearby coordinates.
+                    String city = cachedLocationName(location);
+                    if (TextUtils.isEmpty(city)) city = resolveLocationName(location);
+                    if (closed || paused || Thread.currentThread().isInterrupted()
+                            || !hasValidatedInternet()) return;
                     String query = String.format(Locale.US,
                             "https://api.open-meteo.com/v1/forecast?latitude=%.5f&longitude=%.5f"
                                     + "&current=temperature_2m,weather_code&temperature_unit=celsius&timezone=auto",
                             location.getLatitude(), location.getLongitude());
                     connection = (HttpURLConnection) new URL(query).openConnection();
                     activeConnection = connection;
-                    if (closed || paused || Thread.currentThread().isInterrupted()) return;
+                    if (closed || paused || Thread.currentThread().isInterrupted()
+                            || !hasValidatedInternet()) return;
                     connection.setRequestMethod("GET");
                     connection.setConnectTimeout(5000);
                     connection.setReadTimeout(5000);
@@ -312,6 +348,8 @@ public final class WeatherWidgetManager {
                     String place = TextUtils.isEmpty(city) ? "Ubicación automática" : city;
                     if (closed || paused || Thread.currentThread().isInterrupted()) return;
                     preferences.edit().putString(KEY_SUMMARY, summary).putString(KEY_LOCATION, place)
+                            .putFloat(KEY_LATITUDE, (float) location.getLatitude())
+                            .putFloat(KEY_LONGITUDE, (float) location.getLongitude())
                             .putLong(KEY_UPDATED, System.currentTimeMillis()).apply();
                     mainHandler.post(() -> { if (!closed && !paused) render(summary, place); });
                 } catch (Exception e) {
@@ -322,9 +360,40 @@ public final class WeatherWidgetManager {
                 } finally {
                     if (connection != null) connection.disconnect();
                     if (activeConnection == connection) activeConnection = null;
+                    weatherRequestInProgress = false;
                 }
             });
-        } catch (java.util.concurrent.RejectedExecutionException ignored) {}
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            weatherRequestInProgress = false;
+        }
+    }
+
+    /** Requires an active network that Android has validated for Internet access. */
+    private boolean hasValidatedInternet() {
+        ConnectivityManager manager = connectivityManager;
+        if (manager == null) return false;
+        try {
+            Network network = manager.getActiveNetwork();
+            if (network == null) return false;
+            NetworkCapabilities capabilities = manager.getNetworkCapabilities(network);
+            return capabilities != null
+                    && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        } catch (RuntimeException e) {
+            Log.d(TAG, "Internet connectivity status is unavailable", e);
+            return false;
+        }
+    }
+
+    private String cachedLocationName(Location location) {
+        if (location == null || !preferences.contains(KEY_LATITUDE)
+                || !preferences.contains(KEY_LONGITUDE)) return null;
+        String cached = preferences.getString(KEY_LOCATION, null);
+        if (TextUtils.isEmpty(cached)) return null;
+        double latitude = preferences.getFloat(KEY_LATITUDE, 1000f);
+        double longitude = preferences.getFloat(KEY_LONGITUDE, 1000f);
+        return Math.abs(location.getLatitude() - latitude) <= 0.02d
+                && Math.abs(location.getLongitude() - longitude) <= 0.02d ? cached : null;
     }
 
     @SuppressWarnings("deprecation")
