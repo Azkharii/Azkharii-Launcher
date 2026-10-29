@@ -241,7 +241,7 @@ The automatic update path remains implemented but is not deployable against the 
 
 - **Pinned-app wheel:** transient hardware layers added for the moving cards; layers are released after the slide. Focus-marker geometry updates are throttled to 50 ms during animation. Glow-color sampling is cached per package.
 - **Recent-app carousel:** selected package/index persistence is debounced to avoid repeated SharedPreferences writes during D-pad scrolling; pending selection is flushed when the Activity pauses.
-- **Managed wallpapers:** removed stale “Fondo mostrado” status and file-name labels. Low-resolution thumbnails distinguish the images; the title gets additional inset so the initial “M” and other glyphs stay away from the dialog edge.
+- **Managed wallpapers:** removed stale “Fondo mostrado” status and file-name labels. Low-resolution thumbnails distinguish the images and their file I/O/decoding runs off the UI thread; the title gets additional inset so the initial “M” and other glyphs stay away from the dialog edge.
 - **Inputs/Photos controls:** Inputs reduced to 56×38 dp and Photos to 38×38 dp. Their single-line labels are centered and ellipsized within the button bounds.
 - **Release APK:** R8 code shrinking and unused-resource shrinking enabled; the blanket keep-all rule removed, retaining only the XML click handler. CI includes an optimized release assembly step.
 - **Status:** hosted CI/build validation and physical TV CPU/RAM and visual checks are **PENDING**. These are source-level changes, not proof of a measured CPU reduction or a specific APK-size reduction; report actual CI APK sizes and device samples after they are available.
