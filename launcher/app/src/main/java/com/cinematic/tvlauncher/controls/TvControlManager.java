@@ -253,6 +253,177 @@ public class TvControlManager {
         chooseButton.requestFocus();
     }
 
+
+    private void showManagedBackgroundsDialog() {
+        if (backgroundManager == null) {
+            Toast.makeText(activity, "La gestión de fondos no está disponible.", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        Dialog dialog = new Dialog(activity);
+        android.widget.LinearLayout content = new android.widget.LinearLayout(activity);
+        content.setOrientation(android.widget.LinearLayout.VERTICAL);
+        content.setPadding(dp(20), dp(18), dp(20), dp(18));
+        content.setBackgroundResource(R.drawable.liquid_glass_dialog_bg);
+
+        TextView title = new TextView(activity);
+        title.setText("MIS FONDOS");
+        title.setTextColor(android.graphics.Color.WHITE);
+        title.setTextSize(20);
+        title.setTypeface(android.graphics.Typeface.create(
+                "sans-serif-medium", android.graphics.Typeface.BOLD));
+        content.addView(title);
+
+        TextView current = new TextView(activity);
+        current.setTextColor(0xFFB8DFF5);
+        current.setTextSize(12);
+        current.setPadding(0, dp(6), 0, dp(12));
+        content.addView(current);
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
+        scroll.setFillViewport(true);
+        android.widget.LinearLayout list = new android.widget.LinearLayout(activity);
+        list.setOrientation(android.widget.LinearLayout.VERTICAL);
+        scroll.addView(list, new android.widget.ScrollView.LayoutParams(-1, -2));
+        content.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1, dp(260)));
+
+        TextView close = new TextView(activity);
+        close.setText("CERRAR");
+        close.setGravity(android.view.Gravity.CENTER);
+        close.setTextColor(android.graphics.Color.WHITE);
+        close.setTextSize(13);
+        close.setFocusable(true);
+        close.setClickable(true);
+        close.setBackgroundResource(R.drawable.liquid_glass_action_bg);
+        android.widget.LinearLayout.LayoutParams closeParams =
+                new android.widget.LinearLayout.LayoutParams(-1, dp(44));
+        closeParams.topMargin = dp(10);
+        content.addView(close, closeParams);
+        close.setOnClickListener(v -> dialog.dismiss());
+
+        dialog.setContentView(content);
+        dialog.setCancelable(true);
+        populateManagedBackgroundRows(list, current, dialog);
+        Window window = dialog.getWindow();
+        if (window != null) {
+            window.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.width = Math.min(dp(560),
+                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.82f));
+            attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            attributes.dimAmount = 0.22f;
+            window.setAttributes(attributes);
+            window.setGravity(android.view.Gravity.CENTER);
+        }
+        dialog.show();
+        if (window != null) {
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            attributes.width = Math.min(dp(560),
+                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.82f));
+            attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
+            window.setAttributes(attributes);
+        }
+        close.requestFocus();
+    }
+
+    private void populateManagedBackgroundRows(
+            android.widget.LinearLayout list, TextView current, Dialog dialog) {
+        list.removeAllViews();
+        File active = backgroundManager.getCurrentWallpaperFile();
+        current.setText(active == null
+                ? "Fondo mostrado: predeterminado o no identificado"
+                : "Fondo mostrado: " + displayBackgroundName(active));
+
+        List<File> files = backgroundManager.getManagedBackgrounds();
+        if (files.isEmpty()) {
+            TextView empty = new TextView(activity);
+            empty.setText("No hay fondos importados. Usa «Elegir fotos» para añadirlos.");
+            empty.setTextColor(0xFFCFD8E3);
+            empty.setTextSize(14);
+            empty.setPadding(0, dp(14), 0, dp(14));
+            list.addView(empty);
+            return;
+        }
+
+        for (File file : files) {
+            android.widget.LinearLayout row = new android.widget.LinearLayout(activity);
+            row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(4), 0, dp(4));
+
+            TextView name = new TextView(activity);
+            name.setText(displayBackgroundName(file));
+            name.setTextColor(android.graphics.Color.WHITE);
+            name.setTextSize(11);
+            name.setMaxLines(2);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+            row.addView(name, new android.widget.LinearLayout.LayoutParams(0, dp(44), 1f));
+
+            TextView use = new TextView(activity);
+            use.setText("USAR");
+            use.setGravity(android.view.Gravity.CENTER);
+            use.setTextColor(0xFFB8E8FF);
+            use.setTextSize(11);
+            use.setFocusable(true);
+            use.setClickable(true);
+            use.setBackgroundResource(R.drawable.liquid_glass_action_bg);
+            android.widget.LinearLayout.LayoutParams useParams =
+                    new android.widget.LinearLayout.LayoutParams(dp(62), dp(40));
+            useParams.setMargins(dp(4), 0, dp(4), 0);
+            row.addView(use, useParams);
+            use.setOnClickListener(v -> {
+                if (backgroundManager.showWallpaper(file)) {
+                    dialog.dismiss();
+                    Toast.makeText(activity, "Cambiando al fondo seleccionado…",
+                            Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(activity, "No se pudo cargar ese fondo.",
+                            Toast.LENGTH_LONG).show();
+                }
+            });
+
+            TextView remove = new TextView(activity);
+            remove.setText("BORRAR");
+            remove.setGravity(android.view.Gravity.CENTER);
+            remove.setTextColor(0xFFFFC7C7);
+            remove.setTextSize(10);
+            remove.setFocusable(true);
+            remove.setClickable(true);
+            remove.setBackgroundResource(R.drawable.liquid_glass_action_bg);
+            android.widget.LinearLayout.LayoutParams removeParams =
+                    new android.widget.LinearLayout.LayoutParams(dp(66), dp(40));
+            row.addView(remove, removeParams);
+            remove.setOnClickListener(v -> new AlertDialog.Builder(activity)
+                    .setTitle("Eliminar fondo")
+                    .setMessage("Se eliminará la copia guardada dentro de Cinematic TV. Esta acción no borra la imagen original de la galería.\n\n"
+                            + displayBackgroundName(file))
+                    .setNegativeButton("Cancelar", null)
+                    .setPositiveButton("Eliminar", (d, which) -> {
+                        if (backgroundManager.deleteManagedBackground(file)) {
+                            Toast.makeText(activity, "Fondo eliminado de Cinematic TV.",
+                                    Toast.LENGTH_SHORT).show();
+                            populateManagedBackgroundRows(list, current, dialog);
+                        } else {
+                            Toast.makeText(activity, "No se pudo eliminar ese fondo.",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    }).show());
+
+            list.addView(row, new android.widget.LinearLayout.LayoutParams(-1, dp(48)));
+        }
+    }
+
+    private String displayBackgroundName(File file) {
+        if (file == null) return "Fondo";
+        String name = file.getName();
+        if (name.startsWith("custom_background_")) {
+            String[] parts = name.split("_", 6);
+            if (parts.length == 6 && !parts[5].trim().isEmpty()) return parts[5];
+        }
+        return name;
+    }
+
     private void openBackgroundPicker() {
         Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         picker.addCategory(Intent.CATEGORY_OPENABLE);
