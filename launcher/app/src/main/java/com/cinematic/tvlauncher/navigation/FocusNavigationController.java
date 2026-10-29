@@ -7,6 +7,7 @@ import com.cinematic.tvlauncher.carousel.AppCarouselView;
 public class FocusNavigationController {
     private final AppCarouselView carouselView;
     private final View btnInputs;
+    private final View btnCheckUpdates;
     private final View btnWifi;
     private final View btnSettings;
     private final View btnPhotos;
@@ -15,7 +16,13 @@ public class FocusNavigationController {
 
     public FocusNavigationController(AppCarouselView carouselView, View btnInputs, View btnWifi,
             View btnSettings, View btnPhotos, View btnSearch) {
+        this(carouselView, null, btnInputs, btnWifi, btnSettings, btnPhotos, btnSearch);
+    }
+
+    public FocusNavigationController(AppCarouselView carouselView, View btnCheckUpdates,
+            View btnInputs, View btnWifi, View btnSettings, View btnPhotos, View btnSearch) {
         this.carouselView = carouselView;
+        this.btnCheckUpdates = btnCheckUpdates;
         this.btnInputs = btnInputs;
         this.btnWifi = btnWifi;
         this.btnSettings = btnSettings;
@@ -27,8 +34,14 @@ public class FocusNavigationController {
     private void setupNavigationRules() {
         carouselView.setNextFocusUpId(btnInputs.getId());
         carouselView.setNextFocusDownId(carouselView.getId());
-        btnInputs.setNextFocusLeftId(btnInputs.getId());
+        btnInputs.setNextFocusLeftId(btnCheckUpdates != null
+                ? btnCheckUpdates.getId() : btnInputs.getId());
         btnInputs.setNextFocusRightId(btnWifi.getId());
+        if (btnCheckUpdates != null) {
+            btnCheckUpdates.setNextFocusLeftId(btnCheckUpdates.getId());
+            btnCheckUpdates.setNextFocusRightId(btnInputs.getId());
+            btnCheckUpdates.setNextFocusDownId(carouselView.getId());
+        }
         btnInputs.setNextFocusDownId(carouselView.getId());
         btnWifi.setNextFocusLeftId(btnInputs.getId());
         btnWifi.setNextFocusRightId(btnSettings.getId());
@@ -51,7 +64,7 @@ public class FocusNavigationController {
     public int getLastSelectedAppIndex() { return lastSelectedAppIndex; }
 
     public boolean handleBackPressed(View currentFocus) {
-        if (currentFocus != null && (currentFocus == btnInputs || currentFocus == btnWifi
+        if (currentFocus != null && (currentFocus == btnCheckUpdates || currentFocus == btnInputs || currentFocus == btnWifi
                 || currentFocus == btnSettings || currentFocus == btnPhotos || currentFocus == btnSearch)) {
             carouselView.requestFocus();
             carouselView.setSelectedIndex(lastSelectedAppIndex);
