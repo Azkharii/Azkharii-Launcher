@@ -196,7 +196,7 @@ public class TvControlManager {
     private void handleAssistantAction() {
         Intent[] intents = new Intent[] {
                 new Intent(Intent.ACTION_ASSIST),
-                new Intent(Intent.ACTION_VOICE_ASSIST)
+                new Intent(Intent.ACTION_VOICE_COMMAND)
         };
         for (Intent intent : intents) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
