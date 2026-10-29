@@ -47,6 +47,7 @@ final class PerformanceHud {
         label.setIncludeFontPadding(false);
         label.setPadding(dp(8), dp(5), dp(8), dp(5));
         label.setText("RAM -- MiB\nCPU --%");
+        label.setVisibility(View.GONE);
         label.setContentDescription("Consumo del launcher: memoria PSS y CPU del proceso");
         label.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         label.setFocusable(false);
@@ -70,7 +71,9 @@ final class PerformanceHud {
     }
 
     void start() {
-        if (closed || running) return;
+        if (closed) return;
+        label.setVisibility(View.VISIBLE);
+        if (running) return;
         running = true;
         previousCpuMs = Process.getElapsedCpuTime();
         previousElapsedMs = SystemClock.elapsedRealtime();
@@ -84,6 +87,10 @@ final class PerformanceHud {
         handler.removeCallbacks(sampler);
         previousCpuMs = -1L;
         previousElapsedMs = -1L;
+        // Hide the entire diagnostic HUD outside the launcher home surface; no stale
+        // RAM number should appear to be a continuing measurement while sampling is stopped.
+        label.setVisibility(View.GONE);
+        label.setText("RAM -- MiB\nCPU --%");
     }
 
     void close() {
