@@ -704,7 +704,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
 
         CardGlowState(MediaItem item, float density) {
             this.item = item;
-            glow = new AdaptiveGlowDrawable(item.accentPalette, density, 9f, false);
+            glow = new AdaptiveGlowDrawable(item.accentPalette, density, 6f, false);
         }
 
         void updatePalette(int[] palette) {
