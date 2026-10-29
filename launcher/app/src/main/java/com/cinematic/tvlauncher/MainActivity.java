@@ -1694,7 +1694,6 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         }
         requestWatchNextReadPermissionIfNeeded();
         if (!watchNextPermissionRequestInFlight) promptUsageAccessIfNeeded();
-        updateClockAndDate();
         if (updateManager != null) updateManager.onResume();
     }
 
