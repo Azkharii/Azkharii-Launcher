@@ -274,3 +274,12 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - **Wallpaper transition:** crossfade duration is reduced from 400 ms to 260 ms. HUD palette sampling goes from 48×28 to 32×18 pixels, its color transition from 600 ms to 360 ms with updates limited to roughly 15/s, and first-visit preview compression is deferred to 1.8 s and coalesced to avoid encoding obsolete wallpaper bitmaps. JPEG quality is 85 instead of 91 to reduce encode cost; visual image quality needs TV confirmation.
 - **Cleanup audit:** release builds already use R8 and unused-resource shrinking. No broad file/resource deletion was made because the source audit did not prove other production resources were unreferenced.
 - **Validation:** repository tests, debug APK build and optimized release build must pass CI for this commit. Physical-TV visual/focus checks and same-scene CPU/RAM samples remain pending; no measured reduction is claimed yet.
+
+
+## Idle wallpaper and control-layout pass — 2026-10-29
+
+- Wallpaper rotation interval increased from 10 to 30 seconds; crossfade duration reduced from 260 to 180 ms.
+- Inputs and Photos controls now use the same 36 dp square footprint as Wi-Fi, Settings, and Search.
+- Continue Watching playback progress track/fill are inset further from the card edge to prevent the bar extending beyond the visible poster area.
+- MainActivity already calls `CinematicBackgroundManager.onPause()` when the launcher loses foreground; the manager cancels rotation callbacks, pending decode/cache work, and its active crossfade. This lifecycle path was reviewed but not runtime-tested on the TV in this environment.
+- Automated tests/build and physical-TV CPU/RAM, focus, and visual checks: **PENDING**. No measured CPU improvement is claimed from these source changes.
