@@ -211,3 +211,17 @@ No UI component, navigation behavior, Watch Next feature, wallpaper crossfade, o
 
 - Hosted CI must run repository integrity, unit tests, debug APK build, and optimized release build for the new head.
 - Physical TV measurements and visual review are still needed. Do not claim quantified CPU/RAM improvement from a code diff alone.
+
+
+## Bounded artwork palette cache and pinned-wheel buffers — 2026-10-29
+
+### Source-level changes
+- The full app-library carousel rebuild samples an app banner/icon to generate its eight-zone edge palette, average card color, and icon accent. Those values are now cached per package in a bounded 128-entry LRU, so reopening the library can reuse samples instead of rasterizing every artwork again.
+- App-artwork palettes and both MainActivity icon-accent caches are invalidated when Android reports package changes, and on resume when LauncherApps callbacks are unavailable. This avoids retaining stale colors after app updates.
+- Pinned-app wheel navigation now fills fixed five-card transform buffers instead of allocating a copied moving-card list and temporary float arrays for each card on every key press. The end-of-animation slot ordering, transform formula, duration, focus movement, artwork, and illumination remain unchanged.
+- The existing cache stores only a small number of sampled colors; it does not cache full-size bitmaps. The first opening of a cold/evicted library can still sample all app artwork, and this change makes no claim about the cost of creating all library views.
+
+### Validation boundary
+- Source-anchor checks confirmed the bounded cache, invalidation paths, transform buffers, and preserved transform formula.
+- Pull request #18 runs repository integrity checks, JVM unit tests, and debug plus optimized release/R8 builds. Results must be taken from GitHub Actions, not inferred from this source review.
+- Repeatable same-scene CPU/RAM and focus/visual checks on the Hisense TV remain required before claiming a measured performance improvement.
