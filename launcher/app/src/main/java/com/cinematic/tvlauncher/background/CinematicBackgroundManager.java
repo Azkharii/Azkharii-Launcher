@@ -369,31 +369,28 @@ public class CinematicBackgroundManager {
         back.setScaleX(front.getScaleX());
         back.setScaleY(front.getScaleY());
 
-        // Keep both wallpaper layers beneath the XML scrims and all UI.
-        // Never call bringToFront(): it would place the selected photo over the launcher controls.
+        // Keep both full-screen images below the XML scrims and all launcher controls.
+        // The incoming image must be immediately above the outgoing one to crossfade with
+        // a single alpha animation, avoiding simultaneous full-screen alpha updates.
+        keepIncomingWallpaperAboveOutgoing(front, back);
         back.setImageBitmap(newBitmap);
         if (back == imageViewA) wallpaperFileA = sourceFile;
         else wallpaperFileB = sourceFile;
         back.setAlpha(0f);
 
-        // Crossfade both layers simultaneously so the outgoing image gradually
-        // loses opacity while the incoming image becomes visible. Keep the transition
-        // long enough to read as cinematic rather than a hard wallpaper swap.
         int duration = Math.max(180, config.getCrossfadeDurationMs());
         ObjectAnimator fadeIn = ObjectAnimator.ofFloat(back, "alpha", 0f, 1f);
-        ObjectAnimator fadeOut = ObjectAnimator.ofFloat(front, "alpha", 1f, 0f);
         AnimatorSet crossfade = new AnimatorSet();
-        crossfade.playTogether(fadeIn, fadeOut);
+        crossfade.play(fadeIn);
         crossfade.setDuration(duration);
         crossfade.setInterpolator(new AccelerateDecelerateInterpolator());
         crossfade.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationEnd(Animator animation) {
-                front.setAlpha(0f);
+                front.setAlpha(1f);
                 front.setScaleX(1f);
                 front.setScaleY(1f);
-                // Crossfade is complete: the outgoing layer is no longer visible. Drop its
-                // bitmap now instead of retaining two TV-sized images until the next rotation.
+                // Drop the outgoing TV-sized bitmap after the top layer has fully faded in.
                 clearWallpaperLayer(front, false);
                 back.setAlpha(1f);
                 isFrontA = !isFrontA;
@@ -510,6 +507,24 @@ public class CinematicBackgroundManager {
             long length = preview.length();
             if (preview.delete()) totalBytes -= length;
         }
+    }
+
+    /**
+     * Keep the two wallpaper layers in adjacent child positions, still below the scrims and
+     * application UI. This preserves overlay compositing when A/B alternate as the new image.
+     */
+    private void keepIncomingWallpaperAboveOutgoing(ImageView outgoing, ImageView incoming) {
+        android.view.ViewParent rawParent = incoming.getParent();
+        if (!(rawParent instanceof android.view.ViewGroup)
+                || outgoing.getParent() != rawParent) return;
+        android.view.ViewGroup parent = (android.view.ViewGroup) rawParent;
+        int incomingIndex = parent.indexOfChild(incoming);
+        int outgoingIndex = parent.indexOfChild(outgoing);
+        if (incomingIndex < 0 || outgoingIndex < 0 || incomingIndex > outgoingIndex) return;
+        android.view.ViewGroup.LayoutParams params = incoming.getLayoutParams();
+        parent.removeView(incoming);
+        int updatedOutgoingIndex = parent.indexOfChild(outgoing);
+        parent.addView(incoming, updatedOutgoingIndex + 1, params);
     }
 
     /**
