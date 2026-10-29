@@ -240,7 +240,7 @@ public class AppCarouselView extends FrameLayout {
             FrameLayout surface = new FrameLayout(context);
             LayoutParams surfaceLp = new LayoutParams(cardWidth, cardHeight, Gravity.CENTER);
             surface.setLayoutParams(surfaceLp);
-            surface.setBackground(createCardBackground(sampledColor, false));
+            surface.setBackground(createCardBackground(cachedArtwork.averageColor, false));
             // Do not attach/draw an idle adaptive edge before the carousel has focus.
             surface.setClipChildren(true);
             surface.setClipToPadding(true);
