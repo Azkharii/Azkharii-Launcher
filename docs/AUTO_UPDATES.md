@@ -1,15 +1,15 @@
-# Actualizaciones automáticas de Cinematic TV
+# Comprobación manual de actualizaciones de Cinematic TV
 
 ## Estado actual
 
 - El repositorio público es `Azkharii/Azkharii-Launcher`.
 - `UpdateManager` consulta `https://api.github.com/repos/Azkharii/Azkharii-Launcher/releases/latest`; no requiere un token de GitHub y no debe incluirse ningún secreto en el APK.
-- El actualizador valida el nombre del APK, el SHA-256 publicado por GitHub, el identificador del paquete y el código de versión antes de abrir el instalador de Android.
+- El comprobador lee SHA-256 del metadato del activo o del archivo de checksum publicado por el workflow; antes de abrir el instalador valida el nombre del APK, el tamaño, el SHA-256, el identificador del paquete y el código de versión.
 - Android siempre solicita la aprobación final de instalación; no se intenta instalar silenciosamente.
 - La publicación estable utiliza la clave de firma persistente configurada mediante los cuatro secretos descritos en `docs/RELEASING.md`; nunca debe publicarse una APK con una clave efímera.
-- El actualizador se ejecuta únicamente en la variante estable. La variante `debug` no se autoactualiza.
+- La comprobación se inicia desde la flecha sin recuadro junto a «Entradas»; no hay temporizador ni consultas automáticas al reanudar. Las compilaciones debug pueden consultar releases y mostrar el enlace, pero no se instalan encima de la variante estable.
 - El aviso solo muestra las versiones visible instalada y disponible (por ejemplo, `1.0.3 → 1.0.4`); no expone el `versionCode` ni los detalles del commit.
-- La comprobación se realiza al reanudar y cada 30 minutos en primer plano; los fallos usan reintentos limitados de 5, 10, 20 y 30 minutos.
+- Una comprobación manual indica si ya estás actualizado, si hay una versión más nueva o si la release no puede verificarse. Los fallos se pueden reintentar pulsando de nuevo la flecha.
 
 ## Dos requisitos distintos para actualizar encima de una instalación existente
 
