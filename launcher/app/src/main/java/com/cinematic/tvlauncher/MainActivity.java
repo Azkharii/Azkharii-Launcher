@@ -1614,10 +1614,14 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     public boolean dispatchKeyEvent(KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_DOWN) {
             int keyCode = event.getKeyCode();
-            if (controlManager != null && (keyCode == KeyEvent.KEYCODE_SETTINGS
-                    || keyCode == KeyEvent.KEYCODE_MENU)) {
-                if (event.getRepeatCount() == 0) controlManager.openSettingsFromRemote();
-                return true;
+            if (keyCode == KeyEvent.KEYCODE_SETTINGS || keyCode == KeyEvent.KEYCODE_MENU
+                    || keyCode == KeyEvent.KEYCODE_TV_CONTENTS_MENU) {
+                Log.i(TAG, "Remote settings/menu key received: "
+                        + KeyEvent.keyCodeToString(keyCode));
+                if (controlManager != null) {
+                    if (event.getRepeatCount() == 0) controlManager.openSettingsFromRemote();
+                    return true;
+                }
             }
             if (controlManager != null && (keyCode == KeyEvent.KEYCODE_SEARCH
                     || keyCode == KeyEvent.KEYCODE_ASSIST
