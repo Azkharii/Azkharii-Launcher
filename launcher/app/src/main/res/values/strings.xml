@@ -5,10 +5,12 @@
     <string name="control_settings">Configuración</string>
     <string name="control_settings_short">Ajustes</string>
     <string name="control_search">Buscar con el Asistente de Google</string>
+    <string name="control_check_updates">Buscar actualizaciones</string>
     <string name="control_photos">Fondo personalizado</string>
     <string name="custom_background_title">Fondo personalizado</string>
-    <string name="custom_background_description">Elige imágenes del almacenamiento del dispositivo para usarlas como fondo.</string>
+    <string name="custom_background_description">Importa imágenes de la galería. Cinematic TV guardará una copia privada para usarlas sin depender de la galería.</string>
     <string name="custom_background_choose">Elegir fotos</string>
+    <string name="custom_background_manage">Mis fondos · ver, usar o eliminar</string>
     <string name="custom_background_cancel">Cancelar</string>
     <string name="app_library_title">Biblioteca de aplicaciones</string>
     <string name="app_option_pin">Fijar en aplicaciones recientes</string>
