@@ -7,6 +7,7 @@ import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -54,6 +55,8 @@ public class CinematicBackgroundManager {
     private final AtomicLong workGeneration = new AtomicLong();
     private boolean hasRealWallpaperLoaded = false;
     private File currentWallpaperFile;
+    private File wallpaperFileA;
+    private File wallpaperFileB;
     private Runnable backgroundChangedListener;
 
     private final Runnable rotationRunnable = new Runnable() {
@@ -179,6 +182,28 @@ public class CinematicBackgroundManager {
         return currentWallpaperFile;
     }
 
+    /**
+     * Releases only bitmaps decoded and owned by this manager; resource drawables are never
+     * recycled. Clears the layer before recycling so HWUI cannot draw the old bitmap again.
+     */
+    private void clearWallpaperLayer(ImageView layer, boolean restoreDefault) {
+        if (layer == null) return;
+        File ownedFile = layer == imageViewA ? wallpaperFileA : wallpaperFileB;
+        Bitmap ownedBitmap = null;
+        if (ownedFile != null && layer.getDrawable() instanceof BitmapDrawable) {
+            ownedBitmap = ((BitmapDrawable) layer.getDrawable()).getBitmap();
+        }
+
+        if (restoreDefault) layer.setImageResource(R.drawable.default_wallpaper);
+        else layer.setImageDrawable(null);
+
+        if (ownedBitmap != null && !ownedBitmap.isRecycled()) {
+            ownedBitmap.recycle();
+        }
+        if (layer == imageViewA) wallpaperFileA = null;
+        else if (layer == imageViewB) wallpaperFileB = null;
+    }
+
     /** Starts a worker decode and crossfades to an explicitly selected app-managed photo. */
     public boolean showWallpaper(File file) {
         if (file == null || !isSupportedImage(file) || destroyed || !isVisible) return false;
@@ -230,8 +255,8 @@ public class CinematicBackgroundManager {
             queue.removeImage(file);
 
             if (deletingCurrent) {
-                // Drop any decode/crossfade associated with the removed file and restore a valid
-                // default frame before reloading the remaining local collection.
+                // Drop pending work and release both owned wallpaper bitmaps before restoring
+                // a valid default frame. This avoids retaining a removed full-resolution image.
                 workGeneration.incrementAndGet();
                 if (pendingDecode != null) {
                     pendingDecode.cancel(true);
@@ -244,8 +269,8 @@ public class CinematicBackgroundManager {
                 currentWallpaperFile = null;
                 hasRealWallpaperLoaded = false;
                 isFrontA = true;
-                imageViewA.setImageResource(R.drawable.default_wallpaper);
-                imageViewB.setImageResource(R.drawable.default_wallpaper);
+                clearWallpaperLayer(imageViewA, true);
+                clearWallpaperLayer(imageViewB, true);
                 imageViewA.setAlpha(1f);
                 imageViewB.setAlpha(0f);
                 imageViewA.setScaleX(1f);
@@ -290,6 +315,8 @@ public class CinematicBackgroundManager {
     public void onDestroy() {
         destroyed = true;
         onPause();
+        clearWallpaperLayer(imageViewA, false);
+        clearWallpaperLayer(imageViewB, false);
         decodeExecutor.shutdownNow();
     }
 
@@ -340,6 +367,8 @@ public class CinematicBackgroundManager {
         // Keep both wallpaper layers beneath the XML scrims and all UI.
         // Never call bringToFront(): it would place the selected photo over the launcher controls.
         back.setImageBitmap(newBitmap);
+        if (back == imageViewA) wallpaperFileA = sourceFile;
+        else wallpaperFileB = sourceFile;
         back.setAlpha(0f);
 
         // Crossfade both layers simultaneously so the outgoing image gradually
@@ -356,9 +385,12 @@ public class CinematicBackgroundManager {
             @Override
             public void onAnimationEnd(Animator animation) {
                 front.setAlpha(0f);
-                back.setAlpha(1f);
                 front.setScaleX(1f);
                 front.setScaleY(1f);
+                // Crossfade is complete: the outgoing layer is no longer visible. Drop its
+                // bitmap now instead of retaining two TV-sized images until the next rotation.
+                clearWallpaperLayer(front, false);
+                back.setAlpha(1f);
                 isFrontA = !isFrontA;
                 hasRealWallpaperLoaded = true;
                 scheduleRotationIfAvailable();
