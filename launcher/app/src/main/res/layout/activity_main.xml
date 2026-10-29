@@ -5,7 +5,7 @@
     android:layout_height="match_parent"
     android:background="@color/black">
 
-    <!-- Dual ImageView for smooth 600ms crossfade background rotation (Annex C.2) -->
+    <!-- Dual ImageView for the 400ms crossfade background rotation (Annex C.2) -->
     <ImageView
         android:id="@+id/bg_image_a"
         android:layout_width="match_parent"
