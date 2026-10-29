@@ -72,7 +72,7 @@ public final class UpdateManager {
         checking=true;
         Toast.makeText(activity,"Comprobando actualizaciones…",Toast.LENGTH_SHORT).show();
         try{
-            executor.execute(()->checkLatestRelease(true));
+            executor.execute(this::checkLatestRelease);
         }catch(java.util.concurrent.RejectedExecutionException e){
             checking=false;
             recordCheckFailure("CHECK_NOT_SCHEDULED");
@@ -91,7 +91,7 @@ public final class UpdateManager {
         });
     }
 
-    private void checkLatestRelease(boolean manual){
+    private void checkLatestRelease(){
         HttpURLConnection connection=null;
         try{
             connection=(HttpURLConnection)new URL(RELEASE_API).openConnection();
@@ -105,24 +105,24 @@ public final class UpdateManager {
             int status=connection.getResponseCode();
             if(status==404){
                 recordCheckFailure("NO_PUBLIC_RELEASE");
-                if(manual)showManualStatus("GitHub no encontró una versión pública publicada.");
+                showManualStatus("GitHub no encontró una versión pública publicada.");
                 return;
             }
             if(status==403||status==429){
                 recordCheckFailure("RATE_LIMITED");
-                if(manual)showManualStatus("GitHub limitó temporalmente las comprobaciones. Inténtalo más tarde.");
+                showManualStatus("GitHub limitó temporalmente las comprobaciones. Inténtalo más tarde.");
                 return;
             }
             if(status<200||status>=300){
                 recordCheckFailure("HTTP_"+status);
-                if(manual)showManualStatus("No se pudo consultar GitHub (HTTP "+status+").");
+                showManualStatus("No se pudo consultar GitHub (HTTP "+status+").");
                 return;
             }
 
             JSONObject release=new JSONObject(readLimited(connection.getInputStream(),MAX_JSON));
             if(release.optBoolean("draft",false)||release.optBoolean("prerelease",false)){
                 prefs.edit().putString(LAST_STATUS,"NO_STABLE_RELEASE").apply();
-                if(manual)showManualStatus("No hay una versión estable pública disponible.");
+                showManualStatus("No hay una versión estable pública disponible.");
                 return;
             }
 
@@ -131,13 +131,13 @@ public final class UpdateManager {
             String releaseUrl=release.optString("html_url","https://github.com/Azkharii/Azkharii-Launcher/releases");
             if(remote<=0L){
                 recordCheckFailure("INVALID_RELEASE_TAG");
-                if(manual)showManualStatus("La publicación existe, pero su etiqueta de versión no se pudo interpretar.");
+                showManualStatus("La publicación existe, pero su etiqueta de versión no se pudo interpretar.");
                 return;
             }
 
             if(!UpdateVersionPolicy.isNewer(remote,BuildConfig.VERSION_CODE)){
                 prefs.edit().putString(LAST_STATUS,"CURRENT").apply();
-                if(manual)showManualStatus("Cinematic TV ya está actualizado ("+
+                showManualStatus("Cinematic TV ya está actualizado ("+
                         UpdateVersionPolicy.formatDisplayVersion(BuildConfig.VERSION_NAME)+").");
                 return;
             }
@@ -166,7 +166,7 @@ public final class UpdateManager {
             String displayVersion=UpdateVersionPolicy.formatDisplayVersion(tag);
             if(apkUrl==null||size<=0L||size>MAX_APK){
                 recordCheckFailure("MISSING_APK_ASSET");
-                if(manual)handler.post(()->showUnverifiedReleaseDialog(displayVersion,releaseUrl,
+                handler.post(()->showUnverifiedReleaseDialog(displayVersion,releaseUrl,
                         "La versión nueva está publicada, pero falta el APK esperado o su tamaño no es válido. No se instalará nada."));
                 return;
             }
@@ -179,7 +179,7 @@ public final class UpdateManager {
             }
             if(digest==null||!digest.matches("(?i)[0-9a-f]{64}")){
                 recordCheckFailure("MISSING_APK_SHA256");
-                if(manual)handler.post(()->showUnverifiedReleaseDialog(displayVersion,releaseUrl,
+                handler.post(()->showUnverifiedReleaseDialog(displayVersion,releaseUrl,
                         "La versión nueva está publicada, pero no se pudo verificar su SHA-256. Por seguridad, no se descargará ni instalará el APK."));
                 return;
             }
@@ -191,7 +191,7 @@ public final class UpdateManager {
         }catch(Exception e){
             recordCheckFailure("CHECK_FAILED");
             Log.w(TAG,"Manual update check failed; the installed launcher remains usable.",e);
-            if(manual)showManualStatus("Falló la comprobación. Revisa la conexión y vuelve a intentarlo.");
+            showManualStatus("Falló la comprobación. Revisa la conexión y vuelve a intentarlo.");
         }finally{
             if(connection!=null)connection.disconnect();
             checking=false;
