@@ -184,23 +184,32 @@ public class TvControlManager {
         }
     }
 
+    /** Entry point for physical remotes that send Search/Assist key codes. */
+    public void openAssistantFromRemote() {
+        handleAssistantAction();
+    }
+
     /**
-     * Opens the device's selected system assistant (normally Google Assistant).
-     * Android/OEM firmware chooses the assistant; this app does not hard-code
-     * a Google package name, which would fail on devices with different builds.
+     * Opens the device-selected assistant without hard-coding a Google package.
+     * Some TV firmware exposes VOICE_ASSIST rather than ACTION_ASSIST.
      */
     private void handleAssistantAction() {
-        Intent assistIntent = new Intent(Intent.ACTION_ASSIST);
-        assistIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            activity.startActivity(assistIntent);
-        } catch (ActivityNotFoundException | SecurityException e) {
-            Log.w(TAG, "System assistant is not available for ACTION_ASSIST", e);
-            Toast.makeText(activity, R.string.assistant_unavailable, Toast.LENGTH_LONG).show();
-        } catch (Exception e) {
-            Log.e(TAG, "Unable to open system assistant", e);
-            Toast.makeText(activity, R.string.assistant_unavailable, Toast.LENGTH_LONG).show();
+        Intent[] intents = new Intent[] {
+                new Intent(Intent.ACTION_ASSIST),
+                new Intent(Intent.ACTION_VOICE_ASSIST)
+        };
+        for (Intent intent : intents) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try {
+                activity.startActivity(intent);
+                return;
+            } catch (ActivityNotFoundException | SecurityException e) {
+                Log.d(TAG, "Assistant route unavailable for " + intent.getAction(), e);
+            } catch (Exception e) {
+                Log.w(TAG, "Unable to open assistant route " + intent.getAction(), e);
+            }
         }
+        Toast.makeText(activity, R.string.assistant_unavailable, Toast.LENGTH_LONG).show();
     }
 
     /** Opens the Liquid Glass panel for user-chosen local background images. */
