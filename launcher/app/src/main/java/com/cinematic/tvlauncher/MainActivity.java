@@ -162,7 +162,11 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private LauncherApps launcherApps;
     private boolean launcherAppsCallbackRegistered;
     private boolean activityResumed;
+    private static final long PINNED_WHEEL_LAYER_IDLE_RELEASE_MS = 1200L;
     private final Handler lifecycleHandler = new Handler(Looper.getMainLooper());
+    private final Runnable releasePinnedWheelLayersRunnable = () -> {
+        if (!pinnedWheelAnimating) releasePinnedWheelHardwareLayers();
+    };
 
     private final Runnable packageRefreshRunnable = () -> {
         if (!activityResumed || isFinishing() || isDestroyed() || discoveryManager == null) return;
@@ -228,7 +232,13 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         carouselView.setMaxVisibleCardDistance(2);
         safeContainer = findViewById(R.id.safe_container);
         rootContainer = findViewById(R.id.root_container);
-        if (rootContainer != null) performanceHud = new PerformanceHud(this, rootContainer);
+        // Diagnostic PSS/CPU sampling is opt-in in debug builds. The normal home screen
+        // avoids recurring MemoryInfo allocations and periodic diagnostic TextView updates.
+        if (BuildConfig.DEBUG && rootContainer != null
+                && getIntent().getBooleanExtra(
+                        "com.cinematic.tvlauncher.EXTRA_PERFORMANCE_HUD", false)) {
+            performanceHud = new PerformanceHud(this, rootContainer);
+        }
         libraryOverlay = findViewById(R.id.app_library_overlay);
         libraryCarousel = findViewById(R.id.library_carousel);
         librarySelectedLabel = findViewById(R.id.library_selected_label);
@@ -673,8 +683,6 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         iconView.setPadding(padding, padding, padding, padding);
         iconView.setBackgroundResource(R.drawable.pinned_app_icon_bg);
         if (item.getIcon() != null) iconView.setImageDrawable(item.getIcon());
-        // Keep the five small animated icons' layers warm instead of recreating them per keypress.
-        iconView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         iconView.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus) {
                 applyAppFocusGlow(iconView, (AppItem) iconView.getTag());
@@ -818,6 +826,14 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         float[] incomingTo = pinnedWheelTransform(targetAngle);
         applyPinnedWheelTransform(incoming, incomingFrom);
 
+        // Allocate GPU render layers only for active wheel navigation.
+        lifecycleHandler.removeCallbacks(releasePinnedWheelLayersRunnable);
+        for (View card : moving) {
+            if (card.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+                card.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+            }
+        }
+        incoming.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         pinnedWheelAnimating = true;
         lastPinnedDotUpdateAtMs = 0L;
         ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
@@ -863,9 +879,24 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
                 }
                 pinnedWheelSelectedIndex=newSelection;
                 pinnedWheelAnimating=false;
+                lifecycleHandler.removeCallbacks(releasePinnedWheelLayersRunnable);
+                lifecycleHandler.postDelayed(releasePinnedWheelLayersRunnable,
+                        PINNED_WHEEL_LAYER_IDLE_RELEASE_MS);
             }
         });
         animator.start();
+    }
+
+    /** Release temporary wheel layers after navigation settles. */
+    private void releasePinnedWheelHardwareLayers() {
+        FrameLayout wheel = pinnedAppsWheel;
+        if (wheel == null) return;
+        for (int i = 0; i < wheel.getChildCount(); i++) {
+            View child = wheel.getChildAt(i);
+            if (child.getLayerType() != View.LAYER_TYPE_NONE) {
+                child.setLayerType(View.LAYER_TYPE_NONE, null);
+            }
+        }
     }
 
     private int getAppIconAccent(AppItem item) {
@@ -1803,6 +1834,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         persistRecentSelectionRunnable.run();
         activityResumed = false;
         unregisterTimeTickReceiver();
+        lifecycleHandler.removeCallbacks(releasePinnedWheelLayersRunnable);
+        releasePinnedWheelHardwareLayers();
         if (performanceHud != null) performanceHud.stop();
         lifecycleHandler.removeCallbacks(packageRefreshRunnable);
         if (controlManager != null) controlManager.onPause();
@@ -1823,6 +1856,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     @Override
     protected void onDestroy() {
         activityResumed = false;
+        lifecycleHandler.removeCallbacks(releasePinnedWheelLayersRunnable);
+        releasePinnedWheelHardwareLayers();
         if (performanceHud != null) performanceHud.close();
         unregisterLauncherAppsCallback();
         if (updateManager != null) updateManager.close();
