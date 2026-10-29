@@ -250,7 +250,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                         }
                     }
                     if (items.isEmpty()) {
-                        cancelVisibleArtworkTasks();
+                        cancelAllArtworkTasks();
                         removeAllViews();
                         slotViews.clear();
                         setVisibility(View.GONE);
@@ -399,13 +399,6 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         }
     }
 
-    private void cancelVisibleArtworkTasks() {
-        for (FrameLayout card : slotViews) {
-            Object tag = card.getTag();
-            if (tag instanceof MediaItem) cancelArtworkTasks((MediaItem) tag);
-        }
-    }
-
     /** Applies poster colors on the UI thread after sampling has completed on the worker. */
     private void applyPaletteToCard(View surface, MediaItem item, int[] palette) {
         if (surface == null || item == null || palette == null) return;
@@ -481,7 +474,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     }
 
     private void renderWheel() {
-        cancelVisibleArtworkTasks();
+        cancelAllArtworkTasks();
         if (items.isEmpty()) {
             removeAllViews();
             setVisibility(View.GONE);
