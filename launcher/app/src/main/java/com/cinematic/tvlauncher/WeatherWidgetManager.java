@@ -47,6 +47,7 @@ public final class WeatherWidgetManager {
     private static final String PREFS_NAME = "cinematic_launcher_prefs";
     private static final String KEY_PERMISSION_ASKED = "weather_location_permission_asked";
     private static final String KEY_SUMMARY = "weather_summary";
+    private static final String KEY_WEATHER_CODE = "weather_code";
     private static final String KEY_LOCATION = "weather_location";
     private static final String KEY_UPDATED = "weather_updated_at";
     private static final String KEY_LAST_ATTEMPT = "weather_last_attempt_at";
@@ -345,10 +346,11 @@ public final class WeatherWidgetManager {
                     JSONObject current = new JSONObject(body.toString()).getJSONObject("current");
                     int temperature = (int) Math.round(current.getDouble("temperature_2m"));
                     int code = current.getInt("weather_code");
-                    String summary = weatherIcon(code) + " " + temperature + "°C";
+                    String summary = temperature + "°C";
                     String place = TextUtils.isEmpty(city) ? "Ubicación automática" : city;
                     if (closed || paused || Thread.currentThread().isInterrupted()) return;
-                    preferences.edit().putString(KEY_SUMMARY, summary).putString(KEY_LOCATION, place)
+                    preferences.edit().putString(KEY_SUMMARY, summary).putInt(KEY_WEATHER_CODE, code)
+                            .putString(KEY_LOCATION, place)
                             .putFloat(KEY_LATITUDE, (float) location.getLatitude())
                             .putFloat(KEY_LONGITUDE, (float) location.getLongitude())
                             .putLong(KEY_UPDATED, System.currentTimeMillis()).apply();
@@ -423,40 +425,70 @@ public final class WeatherWidgetManager {
         return null;
     }
 
-    private String weatherIcon(int code) {
-        if (code == 0) return "☀";
-        if (code <= 3) return "⛅";
-        if (code == 45 || code == 48) return "🌫";
-        if (code >= 51 && code <= 67) return "🌧";
-        if (code >= 71 && code <= 77) return "❄";
-        if (code >= 80 && code <= 82) return "🌦";
-        if (code >= 85 && code <= 86) return "❄";
-        if (code >= 95) return "⛈";
-        return "☁";
+    private int weatherDrawable(int code) {
+        switch (WeatherIconPolicy.fromWmoCode(code)) {
+            case CLEAR: return R.drawable.weather_clear;
+            case PARTLY_CLOUDY: return R.drawable.weather_partly_cloudy;
+            case FOG: return R.drawable.weather_fog;
+            case RAIN: return R.drawable.weather_rain;
+            case SNOW: return R.drawable.weather_snow;
+            case STORM: return R.drawable.weather_storm;
+            case CLOUDY:
+            default: return R.drawable.weather_cloudy;
+        }
+    }
+
+    private void setWeatherDrawable(int drawableId) {
+        if (label == null) return;
+        android.graphics.drawable.Drawable icon = activity.getDrawable(drawableId);
+        label.setCompoundDrawablePadding((int) (8f * activity.getResources().getDisplayMetrics().density + 0.5f));
+        label.setCompoundDrawablesWithIntrinsicBounds(icon, null, null, null);
+    }
+
+    /** Supports the old emoji-prefixed cache format while migrating to vector icons. */
+    private String temperatureText(String summary) {
+        if (summary == null) return "";
+        String value = summary.trim();
+        int separator = value.lastIndexOf(' ');
+        if (separator >= 0 && value.substring(separator + 1).contains("°C")) {
+            return value.substring(separator + 1).trim();
+        }
+        return value;
     }
 
     private void render(String summary, String location) {
         if (label == null) return;
-        label.setText(summary + "\n" + location);
-        label.setContentDescription("Clima actual: " + summary + ". Ubicación: " + location + ". Pulsa para actualizar.");
+        String temperature = temperatureText(summary);
+        int code = preferences.getInt(KEY_WEATHER_CODE, 3);
+        setWeatherDrawable(weatherDrawable(code));
+        label.setText(temperature + "\n" + location);
+        label.setContentDescription("Clima actual: " + temperature + ". Ubicación: " + location + ". Pulsa para actualizar.");
     }
 
     private void showStatus(String value) {
         if (label != null) {
+            setWeatherDrawable(R.drawable.weather_cloudy);
             label.setText(value);
             label.setContentDescription(value);
         }
     }
 
     private void showUnavailable(String value) {
-        if (preferences.getString(KEY_SUMMARY, null) != null) showCachedOrUnavailable();
-        else showStatus("☁ " + value);
+        if (preferences.getString(KEY_SUMMARY, null) != null
+                && preferences.getString(KEY_LOCATION, null) != null) {
+            showCachedOrUnavailable();
+        } else {
+            showStatus(value);
+        }
     }
 
     private void showCachedOrUnavailable() {
         String summary = preferences.getString(KEY_SUMMARY, null);
         String location = preferences.getString(KEY_LOCATION, null);
-        if (summary != null && location != null) render(summary, location);
-        else showStatus("☁ Clima no disponible");
+        if (summary != null && location != null) {
+            render(summary, location);
+        } else {
+            showStatus("Clima no disponible");
+        }
     }
 }

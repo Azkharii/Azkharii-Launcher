@@ -11,7 +11,7 @@ public class TestMain {
         System.out.println("  Cinematic Android TV Launcher - Unit Test Suite ");
         System.out.println("==================================================");
 
-        int totalSuites = 7;
+        int totalSuites = 8;
         int passedSuites = 0;
 
         try {
@@ -69,11 +69,20 @@ public class TestMain {
         }
 
         try {
-            System.out.println("7. Running WeatherRefreshPolicyTest (90-minute cache boundary)...");
+            System.out.println("7. Running WeatherRefreshPolicyTest (50-minute cache boundary)...");
             WeatherRefreshPolicyTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
             System.err.println("  [FAIL] WeatherRefreshPolicyTest: " + t.getMessage());
+            t.printStackTrace();
+        }
+
+        try {
+            System.out.println("8. Running WeatherIconPolicyTest (WMO weather-code mapping)...");
+            WeatherIconPolicyTest.runTests();
+            passedSuites++;
+        } catch (Throwable t) {
+            System.err.println("  [FAIL] WeatherIconPolicyTest: " + t.getMessage());
             t.printStackTrace();
         }
 
