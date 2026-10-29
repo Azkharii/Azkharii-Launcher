@@ -36,9 +36,14 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.cinematic.tvlauncher.R;
+import com.cinematic.tvlauncher.background.CinematicBackgroundManager;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * TvControlManager — Manages the three top-right translucent controls:
@@ -47,6 +52,8 @@ import java.util.List;
  */
 public class TvControlManager {
     private static final String TAG = "TvControlManager";
+    private static final ExecutorService BACKGROUND_IMPORT_EXECUTOR =
+            new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
 
     private final Activity activity;
     private final View btnInputs;
@@ -57,6 +64,7 @@ public class TvControlManager {
     private final TextView tvWifiIcon;
     private final View inputOverlay;
     private final TvView inputTvView;
+    private final CinematicBackgroundManager backgroundManager;
     private TvInputManager tvInputManager;
     private ConnectivityManager connectivityManager;
     private final Handler networkHandler = new Handler(Looper.getMainLooper());
@@ -83,11 +91,20 @@ public class TvControlManager {
         }
     }
 
-    public TvControlManager(Activity activity, View btnInputs, View btnWifi, View btnSettings, View btnPhotos, View btnSearch, TextView tvWifiIcon) {
-        this(activity, btnInputs, btnWifi, btnSettings, btnPhotos, btnSearch, tvWifiIcon, null, null);
+    public TvControlManager(Activity activity, View btnInputs, View btnWifi, View btnSettings,
+            View btnPhotos, View btnSearch, TextView tvWifiIcon) {
+        this(activity, btnInputs, btnWifi, btnSettings, btnPhotos, btnSearch, tvWifiIcon, null, null, null);
     }
 
-    public TvControlManager(Activity activity, View btnInputs, View btnWifi, View btnSettings, View btnPhotos, View btnSearch, TextView tvWifiIcon, View inputOverlay, TvView inputTvView) {
+    public TvControlManager(Activity activity, View btnInputs, View btnWifi, View btnSettings,
+            View btnPhotos, View btnSearch, TextView tvWifiIcon, View inputOverlay, TvView inputTvView) {
+        this(activity, btnInputs, btnWifi, btnSettings, btnPhotos, btnSearch, tvWifiIcon,
+                inputOverlay, inputTvView, null);
+    }
+
+    public TvControlManager(Activity activity, View btnInputs, View btnWifi, View btnSettings,
+            View btnPhotos, View btnSearch, TextView tvWifiIcon, View inputOverlay, TvView inputTvView,
+            CinematicBackgroundManager backgroundManager) {
         this.activity = activity;
         this.btnInputs = btnInputs;
         this.btnWifi = btnWifi;
@@ -97,6 +114,7 @@ public class TvControlManager {
         this.tvWifiIcon = tvWifiIcon;
         this.inputOverlay = inputOverlay;
         this.inputTvView = inputTvView;
+        this.backgroundManager = backgroundManager;
         this.tvInputManager = (TvInputManager) activity.getSystemService(Context.TV_INPUT_SERVICE);
         this.connectivityManager = (ConnectivityManager)
                 activity.getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -193,11 +211,18 @@ public class TvControlManager {
         dialog.setCanceledOnTouchOutside(true);
 
         TextView chooseButton = panel.findViewById(R.id.btn_choose_backgrounds);
+        TextView manageButton = panel.findViewById(R.id.btn_manage_backgrounds);
         TextView cancelButton = panel.findViewById(R.id.btn_cancel_backgrounds);
         chooseButton.setOnClickListener(v -> {
             dialog.dismiss();
             openBackgroundPicker();
         });
+        if (manageButton != null) {
+            manageButton.setOnClickListener(v -> {
+                dialog.dismiss();
+                showManagedBackgroundsDialog();
+            });
+        }
         cancelButton.setOnClickListener(v -> dialog.dismiss());
 
         Window window = dialog.getWindow();
@@ -248,26 +273,66 @@ public class TvControlManager {
         if (requestCode != REQUEST_PICK_BACKGROUND_IMAGES) return false;
         if (resultCode != Activity.RESULT_OK || data == null) return true;
 
-        File directory = activity.getExternalFilesDir("CinematicBackgrounds");
-        if (directory == null || (!directory.exists() && !directory.mkdirs())) {
-            Toast.makeText(activity, "No se pudo preparar la carpeta de fondos", Toast.LENGTH_LONG).show();
-            return true;
-        }
-
-        int imported = 0;
+        List<Uri> selected = new ArrayList<>();
         ClipData clip = data.getClipData();
         if (clip != null) {
             for (int i = 0; i < clip.getItemCount(); i++) {
-                if (copyImage(clip.getItemAt(i).getUri(), directory, i)) imported++;
+                Uri uri = clip.getItemAt(i).getUri();
+                if (uri != null) selected.add(uri);
             }
-        } else if (data.getData() != null && copyImage(data.getData(), directory, 0)) {
-            imported++;
+        } else if (data.getData() != null) {
+            selected.add(data.getData());
+        }
+        if (selected.isEmpty()) {
+            Toast.makeText(activity, "No se seleccionaron imágenes", Toast.LENGTH_SHORT).show();
+            return true;
         }
 
-        if (imported > 0) {
-            Toast.makeText(activity, "Fondos personalizados importados: " + imported, Toast.LENGTH_LONG).show();
-        } else {
-            Toast.makeText(activity, "No se pudo importar ninguna foto", Toast.LENGTH_LONG).show();
+        // ACTION_OPEN_DOCUMENT can return persistable grants. Keep them where supported so a
+        // delayed worker import never loses access while the picker activity is gone.
+        int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        if ((flags & Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+            for (Uri uri : selected) {
+                try {
+                    activity.getContentResolver().takePersistableUriPermission(
+                            uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } catch (SecurityException ignored) {
+                    // Immediate import still works for providers that do not support persistence.
+                }
+            }
+        }
+
+        try {
+            BACKGROUND_IMPORT_EXECUTOR.execute(() -> {
+                File directory = new File(activity.getFilesDir(), "CinematicBackgrounds");
+                if (!directory.exists() && !directory.mkdirs()) {
+                    networkHandler.post(() -> Toast.makeText(activity,
+                            "No se pudo preparar el almacenamiento privado de fondos.",
+                            Toast.LENGTH_LONG).show());
+                    return;
+                }
+
+                int imported = 0;
+                for (int i = 0; i < selected.size(); i++) {
+                    if (copyImage(selected.get(i), directory, i)) imported++;
+                }
+                final int importedCount = imported;
+                networkHandler.post(() -> {
+                    if (importedCount > 0) {
+                        if (backgroundManager != null) backgroundManager.loadLocalBackgrounds();
+                        Toast.makeText(activity,
+                                "Fondos guardados dentro de Cinematic TV: " + importedCount,
+                                Toast.LENGTH_LONG).show();
+                    } else {
+                        Toast.makeText(activity,
+                                "No se pudo importar ninguna imagen.",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            Toast.makeText(activity, "No se pudo iniciar la importación de fondos.", Toast.LENGTH_LONG).show();
         }
         return true;
     }
