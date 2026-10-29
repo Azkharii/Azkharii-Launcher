@@ -21,7 +21,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.UserHandle;
-import android.text.format.DateFormat;
 import android.util.Log;
 import android.view.Window;
 import android.view.Gravity;
@@ -156,6 +155,10 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private int optionsPinnedIndex = -1;
 
     private BroadcastReceiver timeTickReceiver;
+    private boolean timeTickReceiverRegistered;
+    private String lastClockText;
+    private String lastDateKey;
+    private Locale lastDateLocale;
     private LauncherApps launcherApps;
     private boolean launcherAppsCallbackRegistered;
     private boolean activityResumed;
@@ -418,41 +421,65 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     }
 
     private void setupClockReceiver() {
-        updateClockAndDate();
         timeTickReceiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
                 updateClockAndDate();
             }
         };
+        updateClockAndDate();
+    }
+
+    /** Receive minute/time changes only while the launcher is foregrounded. */
+    private void registerTimeTickReceiver() {
+        if (timeTickReceiver == null || timeTickReceiverRegistered || !activityResumed) return;
         IntentFilter filter = new IntentFilter();
         filter.addAction(Intent.ACTION_TIME_TICK);
+        filter.addAction(Intent.ACTION_TIME_CHANGED);
+        filter.addAction(Intent.ACTION_DATE_CHANGED);
         filter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         filter.addAction(Intent.ACTION_LOCALE_CHANGED);
-        registerReceiver(timeTickReceiver, filter);
+        try {
+            registerReceiver(timeTickReceiver, filter);
+            timeTickReceiverRegistered = true;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Clock receiver could not be registered", e);
+        }
+    }
+
+    private void unregisterTimeTickReceiver() {
+        if (timeTickReceiver == null || !timeTickReceiverRegistered) return;
+        try {
+            unregisterReceiver(timeTickReceiver);
+        } catch (RuntimeException e) {
+            Log.d(TAG, "Clock receiver was already unregistered", e);
+        } finally {
+            timeTickReceiverRegistered = false;
+        }
     }
 
     private void updateClockAndDate() {
         Date now = new Date();
         Locale locale = Locale.getDefault();
-
-        // Clock: 12h or 24h depending on system settings (Annex C.4)
-        boolean is24h = DateFormat.is24HourFormat(this);
-        String timePattern = is24h ? "HH:mm" : "h:mm a";
-        SimpleDateFormat timeFormat = new SimpleDateFormat(timePattern, locale);
+        SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", locale);
         if (tvClock != null) {
-            tvClock.setText(timeFormat.format(now));
+            String timeText = timeFormat.format(now);
+            if (!timeText.equals(lastClockText)) {
+                tvClock.setText(timeText);
+                lastClockText = timeText;
+            }
         }
 
-        // Date formatted according to system locale
-        SimpleDateFormat dateFormat = new SimpleDateFormat("EEEE, d 'de' MMMM", locale);
-        if (tvDate != null) {
-            String dateText = dateFormat.format(now);
-            // Capitalize first letter
-            if (dateText.length() > 0) {
+        // Date formatting and TextView invalidation only happen when the day or locale changes.
+        String dayKey = new SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(now);
+        if (tvDate != null && (!dayKey.equals(lastDateKey) || !locale.equals(lastDateLocale))) {
+            String dateText = new SimpleDateFormat("EEEE, d 'de' MMMM", locale).format(now);
+            if (!dateText.isEmpty()) {
                 dateText = Character.toUpperCase(dateText.charAt(0)) + dateText.substring(1);
             }
-            tvDate.setText(dateText);
+            if (!dateText.equals(tvDate.getText().toString())) tvDate.setText(dateText);
+            lastDateKey = dayKey;
+            lastDateLocale = locale;
         }
     }
 
@@ -1636,6 +1663,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     protected void onResume() {
         super.onResume();
         activityResumed = true;
+        registerTimeTickReceiver();
+        updateClockAndDate();
         if (performanceHud != null) {
             if (libraryVisible || (libraryOverlay != null && libraryOverlay.getVisibility() == View.VISIBLE)) {
                 performanceHud.stop();
@@ -1663,7 +1692,6 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         }
         requestWatchNextReadPermissionIfNeeded();
         if (!watchNextPermissionRequestInFlight) promptUsageAccessIfNeeded();
-        updateClockAndDate();
         if (updateManager != null) updateManager.onResume();
     }
 
@@ -1774,6 +1802,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         lifecycleHandler.removeCallbacks(persistRecentSelectionRunnable);
         persistRecentSelectionRunnable.run();
         activityResumed = false;
+        unregisterTimeTickReceiver();
         if (performanceHud != null) performanceHud.stop();
         lifecycleHandler.removeCallbacks(packageRefreshRunnable);
         if (controlManager != null) controlManager.onPause();
@@ -1803,11 +1832,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         if (backgroundManager != null) {
             backgroundManager.onDestroy();
         }
-        if (timeTickReceiver != null) {
-            try {
-                unregisterReceiver(timeTickReceiver);
-            } catch (Exception ignored) {}
-        }
+        unregisterTimeTickReceiver();
     }
 
     @Override

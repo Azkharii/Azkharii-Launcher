@@ -283,3 +283,14 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - Continue Watching playback progress track/fill are inset further from the card edge to prevent the bar extending beyond the visible poster area.
 - MainActivity already calls `CinematicBackgroundManager.onPause()` when the launcher loses foreground; the manager cancels rotation callbacks, pending decode/cache work, and its active crossfade. This lifecycle path was reviewed but not runtime-tested on the TV in this environment.
 - Automated tests/build and physical-TV CPU/RAM, focus, and visual checks: **PENDING**. No measured CPU improvement is claimed from these source changes.
+
+
+## Weather idle and wallpaper-library memory pass — 2026-10-29
+
+- Clock receiver registration follows foreground visibility. The clock text changes only when its formatted minute changes, and the date is reformatted only when the local day or locale changes.
+- Weather checks Android's validated Internet capability before location/network work and uses a 90-minute attempt interval. Failed requests are rate-limited to prevent repeated work on each HOME resume; cached weather remains available offline. The previous city label is reused when the approximate coordinates are nearby.
+- Wallpaper rotation remains at **30 seconds**, as configured. This pass does not change the requested rotation frequency or remove the crossfade.
+- The saved-background dialog now decodes thumbnails only for visible rows plus one-row prefetch, uses a single worker with a bounded queue, downsamples extra-wide/extra-tall images, and releases thumbnail references when the dialog closes.
+- Added JVM boundary tests for the 90-minute weather refresh policy.
+
+**Validation:** Hosted tests/build and physical-TV measurements still need to run for this commit. Verify weather behavior with/without validated Internet, scroll through a large saved-background library, and inspect focus/layout. No measured CPU/RAM reduction is claimed before those checks.

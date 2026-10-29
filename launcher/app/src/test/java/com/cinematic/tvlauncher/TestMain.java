@@ -11,7 +11,7 @@ public class TestMain {
         System.out.println("  Cinematic Android TV Launcher - Unit Test Suite ");
         System.out.println("==================================================");
 
-        int totalSuites = 6;
+        int totalSuites = 7;
         int passedSuites = 0;
 
         try {
@@ -65,6 +65,15 @@ public class TestMain {
             passedSuites++;
         } catch (Throwable t) {
             System.err.println("  [FAIL] UpdateVersionPolicyTest: " + t.getMessage());
+            t.printStackTrace();
+        }
+
+        try {
+            System.out.println("7. Running WeatherRefreshPolicyTest (90-minute cache boundary)...");
+            WeatherRefreshPolicyTest.runTests();
+            passedSuites++;
+        } catch (Throwable t) {
+            System.err.println("  [FAIL] WeatherRefreshPolicyTest: " + t.getMessage());
             t.printStackTrace();
         }
 

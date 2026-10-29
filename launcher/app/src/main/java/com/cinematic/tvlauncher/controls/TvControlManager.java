@@ -46,6 +46,9 @@ import com.cinematic.tvlauncher.background.CinematicBackgroundManager;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -60,6 +63,12 @@ public class TvControlManager {
     private static final String TAG = "TvControlManager";
     private static final ExecutorService BACKGROUND_IMPORT_EXECUTOR =
             new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+    // Thumbnail work is low-priority and bounded; the photo library may contain hundreds of files.
+    private static final ExecutorService BACKGROUND_THUMBNAIL_EXECUTOR =
+            new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(8));
+    private final Set<String> pendingBackgroundThumbnailKeys = ConcurrentHashMap.newKeySet();
+    private final Set<String> failedBackgroundThumbnailKeys = ConcurrentHashMap.newKeySet();
+    private volatile long backgroundThumbnailGeneration;
 
     private final Activity activity;
     private final View btnInputs;
@@ -294,8 +303,13 @@ public class TvControlManager {
 
         android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
         scroll.setFillViewport(true);
+        final long thumbnailGeneration = ++backgroundThumbnailGeneration;
+        failedBackgroundThumbnailKeys.clear();
         android.widget.LinearLayout list = new android.widget.LinearLayout(activity);
         list.setOrientation(android.widget.LinearLayout.VERTICAL);
+        scroll.setOnScrollChangeListener((View view, int scrollX, int scrollY,
+                int oldScrollX, int oldScrollY) ->
+                loadVisibleBackgroundThumbnails(scroll, list, thumbnailGeneration));
         scroll.addView(list, new android.widget.ScrollView.LayoutParams(-1, -2));
         content.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1, dp(128)));
 
@@ -315,13 +329,16 @@ public class TvControlManager {
 
         dialog.setContentView(content);
         dialog.setCancelable(true);
-        populateManagedBackgroundRows(list, dialog);
-        // Fit short lists to their contents; longer lists remain scrollable within a cap.
-        int listHeightDp = list.getChildCount() <= 1 ? 56
-                : Math.min(128, list.getChildCount() * 40);
-        android.view.ViewGroup.LayoutParams scrollParams = scroll.getLayoutParams();
-        scrollParams.height = dp(listHeightDp);
-        scroll.setLayoutParams(scrollParams);
+        populateManagedBackgroundRows(list, dialog, scroll, thumbnailGeneration);
+        dialog.setOnDismissListener(ignored -> {
+            ++backgroundThumbnailGeneration;
+            scroll.setOnScrollChangeListener(null);
+            pendingBackgroundThumbnailKeys.clear();
+            failedBackgroundThumbnailKeys.clear();
+            // Discard queued work for the closed dialog; an active decode will exit on generation mismatch.
+            ((ThreadPoolExecutor) BACKGROUND_THUMBNAIL_EXECUTOR).getQueue().clear();
+            clearBackgroundThumbnailViews(list);
+        });
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
@@ -343,10 +360,13 @@ public class TvControlManager {
             window.setAttributes(attributes);
         }
         close.requestFocus();
+        scroll.post(() -> loadVisibleBackgroundThumbnails(scroll, list, thumbnailGeneration));
     }
 
     private void populateManagedBackgroundRows(
-            android.widget.LinearLayout list, Dialog dialog) {
+            android.widget.LinearLayout list, Dialog dialog,
+            android.widget.ScrollView scroll, long thumbnailGeneration) {
+        clearBackgroundThumbnailViews(list);
         list.removeAllViews();
         List<File> files = backgroundManager.getManagedBackgrounds();
         if (files.isEmpty()) {
@@ -357,6 +377,7 @@ public class TvControlManager {
             empty.setGravity(android.view.Gravity.CENTER);
             empty.setPadding(dp(4), dp(8), dp(4), dp(8));
             list.addView(empty);
+            updateManagedBackgroundViewportHeight(scroll, list);
             return;
         }
 
@@ -379,24 +400,7 @@ public class TvControlManager {
             preview.setContentDescription("Vista previa del fondo");
             String thumbnailPath = file.getAbsolutePath();
             preview.setTag(thumbnailPath);
-            // Keep all thumbnail file I/O and pixel decoding off the UI thread.
-            try {
-                BACKGROUND_IMPORT_EXECUTOR.execute(() -> {
-                    Bitmap previewBitmap = decodeBackgroundThumbnail(file);
-                    if (previewBitmap == null) return;
-                    activity.runOnUiThread(() -> {
-                        if (activity.isFinishing() || activity.isDestroyed()
-                                || preview.getParent() == null
-                                || !thumbnailPath.equals(preview.getTag())) {
-                            previewBitmap.recycle();
-                            return;
-                        }
-                        preview.setImageBitmap(previewBitmap);
-                    });
-                });
-            } catch (java.util.concurrent.RejectedExecutionException ignored) {
-                // The manager is shutting down; the empty thumbnail frame remains harmless.
-            }
+            // Decode only when this row is visible or close to the viewport.
             FrameLayout.LayoutParams previewImageParams = new FrameLayout.LayoutParams(-1, -1);
             previewImageParams.setMargins(dp(2), dp(2), dp(2), dp(2));
             previewFrame.addView(preview, previewImageParams);
@@ -447,7 +451,7 @@ public class TvControlManager {
                         if (backgroundManager.deleteManagedBackground(file)) {
                             Toast.makeText(activity, "Fondo eliminado de Cinematic TV.",
                                     Toast.LENGTH_SHORT).show();
-                            populateManagedBackgroundRows(list, dialog);
+                            populateManagedBackgroundRows(list, dialog, scroll, thumbnailGeneration);
                         } else {
                             Toast.makeText(activity, "No se pudo eliminar ese fondo.",
                                     Toast.LENGTH_LONG).show();
@@ -455,6 +459,104 @@ public class TvControlManager {
                     }).show());
 
             list.addView(row, new android.widget.LinearLayout.LayoutParams(-1, dp(40)));
+        }
+        updateManagedBackgroundViewportHeight(scroll, list);
+        scroll.post(() -> loadVisibleBackgroundThumbnails(scroll, list, thumbnailGeneration));
+    }
+
+    private void updateManagedBackgroundViewportHeight(
+            android.widget.ScrollView scroll, android.widget.LinearLayout list) {
+        int heightDp = list.getChildCount() <= 1 ? 56 : Math.min(128, list.getChildCount() * 40);
+        android.view.ViewGroup.LayoutParams params = scroll.getLayoutParams();
+        if (params != null && params.height != dp(heightDp)) {
+            params.height = dp(heightDp);
+            scroll.setLayoutParams(params);
+        }
+    }
+
+    /** Schedules thumbnails only for visible rows plus one row of prefetch. */
+    private void loadVisibleBackgroundThumbnails(
+            android.widget.ScrollView scroll, android.widget.LinearLayout list, long generation) {
+        if (generation != backgroundThumbnailGeneration || scroll.getHeight() <= 0) return;
+        int viewportTop = Math.max(0, scroll.getScrollY() - dp(40));
+        int viewportBottom = scroll.getScrollY() + scroll.getHeight() + dp(40);
+        for (int i = 0; i < list.getChildCount(); i++) {
+            View row = list.getChildAt(i);
+            if (row.getBottom() < viewportTop || row.getTop() > viewportBottom) continue;
+            if (!(row instanceof android.widget.LinearLayout)) continue;
+            android.widget.LinearLayout rowLayout = (android.widget.LinearLayout) row;
+            if (rowLayout.getChildCount() == 0) continue;
+            View frame = rowLayout.getChildAt(0);
+            if (!(frame instanceof FrameLayout) || ((FrameLayout) frame).getChildCount() == 0) continue;
+            View child = ((FrameLayout) frame).getChildAt(0);
+            if (!(child instanceof ImageView)) continue;
+            ImageView preview = (ImageView) child;
+            if (preview.getDrawable() != null || !(preview.getTag() instanceof String)) continue;
+            String sourcePath = (String) preview.getTag();
+            String requestKey = generation + "|" + sourcePath;
+            if (pendingBackgroundThumbnailKeys.contains(requestKey)
+                    || failedBackgroundThumbnailKeys.contains(requestKey)) continue;
+            if (!pendingBackgroundThumbnailKeys.add(requestKey)) continue;
+            File sourceFile = new File(sourcePath);
+            try {
+                BACKGROUND_THUMBNAIL_EXECUTOR.execute(() -> {
+                    Bitmap bitmap = null;
+                    boolean deliveredToUi = false;
+                    try {
+                        if (generation != backgroundThumbnailGeneration
+                                || Thread.currentThread().isInterrupted()) return;
+                        bitmap = decodeBackgroundThumbnail(sourceFile);
+                        if (bitmap == null) {
+                            failedBackgroundThumbnailKeys.add(requestKey);
+                            return;
+                        }
+                        if (generation != backgroundThumbnailGeneration
+                                || Thread.currentThread().isInterrupted()) return;
+                        Bitmap result = bitmap;
+                        bitmap = null;
+                        deliveredToUi = true;
+                        activity.runOnUiThread(() -> {
+                            if (generation == backgroundThumbnailGeneration
+                                    && !activity.isFinishing() && !activity.isDestroyed()
+                                    && preview.getParent() != null
+                                    && sourcePath.equals(preview.getTag())
+                                    && preview.getDrawable() == null) {
+                                preview.setImageBitmap(result);
+                            } else {
+                                result.recycle();
+                            }
+                            pendingBackgroundThumbnailKeys.remove(requestKey);
+                            if (generation == backgroundThumbnailGeneration && scroll.getParent() != null) {
+                                scroll.post(() -> loadVisibleBackgroundThumbnails(scroll, list, generation));
+                            }
+                        });
+                    } finally {
+                        if (bitmap != null) bitmap.recycle();
+                        if (!deliveredToUi) {
+                            pendingBackgroundThumbnailKeys.remove(requestKey);
+                            if (generation == backgroundThumbnailGeneration) {
+                                activity.runOnUiThread(() ->
+                                        scroll.post(() -> loadVisibleBackgroundThumbnails(scroll, list, generation)));
+                            }
+                        }
+                    }
+                });
+            } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                pendingBackgroundThumbnailKeys.remove(requestKey);
+            }
+        }
+    }
+
+    private void clearBackgroundThumbnailViews(android.widget.LinearLayout list) {
+        for (int i = 0; i < list.getChildCount(); i++) {
+            View row = list.getChildAt(i);
+            if (!(row instanceof android.widget.LinearLayout)) continue;
+            android.widget.LinearLayout rowLayout = (android.widget.LinearLayout) row;
+            if (rowLayout.getChildCount() == 0) continue;
+            View frame = rowLayout.getChildAt(0);
+            if (!(frame instanceof FrameLayout) || ((FrameLayout) frame).getChildCount() == 0) continue;
+            View child = ((FrameLayout) frame).getChildAt(0);
+            if (child instanceof ImageView) ((ImageView) child).setImageDrawable(null);
         }
     }
 
@@ -473,7 +575,7 @@ public class TvControlManager {
             int targetHeight = Math.max(1, dp(30) * 2);
             int sampleSize = 1;
             while (bounds.outWidth / (sampleSize * 2) >= targetWidth
-                    && bounds.outHeight / (sampleSize * 2) >= targetHeight) {
+                    || bounds.outHeight / (sampleSize * 2) >= targetHeight) {
                 sampleSize *= 2;
             }
             BitmapFactory.Options options = new BitmapFactory.Options();
