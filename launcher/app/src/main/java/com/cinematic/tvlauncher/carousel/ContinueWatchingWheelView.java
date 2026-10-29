@@ -28,7 +28,6 @@ import java.net.URL;
 import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.List;
-import com.cinematic.tvlauncher.navigation.PinnedWheelSlotOrder;
 import com.cinematic.tvlauncher.WatchNextEntryPolicy;
 import com.cinematic.tvlauncher.WatchNextRepository;
 import java.util.concurrent.ExecutorService;
@@ -100,6 +99,11 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     private final List<MediaItem> items = new ArrayList<>();
     private int selectedIndex = 0;
     private boolean animating = false;
+    // Reuse the five visible-card transforms across navigation events.
+    private final float[][] fromTransforms = new float[MAX_VISIBLE_ITEMS][4];
+    private final float[][] toTransforms = new float[MAX_VISIBLE_ITEMS][4];
+    private final float[] incomingFromTransform = new float[4];
+    private final float[] incomingToTransform = new float[4];
     private OnItemActivatedListener activationListener;
     private OnNavigateBackListener navigateBackListener;
     private OnFocusTargetChangedListener focusTargetChangedListener;
@@ -724,6 +728,13 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     }
 
     private float[] cardTransform(float angle) {
+        float[] transform = new float[4];
+        setCardTransform(angle, transform);
+        return transform;
+    }
+
+    private void setCardTransform(float angle, float[] transform) {
+        if (transform == null || transform.length < 4) return;
         int cardWidth = dp(88);
         int cardHeight = dp(50);
         int viewportHeight = getHeight() > 0 ? getHeight() : dp(310);
@@ -731,12 +742,12 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         float radius = Math.max(dp(1), (viewportHeight - cardHeight) / 2f);
         float centerX = viewportWidth - cardWidth / 2f;
         float centerY = viewportHeight / 2f;
-        float x = centerX - radius * (float) Math.cos(angle) - cardWidth / 2f;
-        float y = centerY + radius * (float) Math.sin(angle) - cardHeight / 2f;
-        float scale = 0.84f + 0.16f * Math.max(0f, (float) Math.cos(angle));
-        float rotationY = Math.max(-16f, Math.min(16f,
+        float cosine = (float) Math.cos(angle);
+        transform[0] = centerX - radius * cosine - cardWidth / 2f;
+        transform[1] = centerY + radius * (float) Math.sin(angle) - cardHeight / 2f;
+        transform[2] = 0.84f + 0.16f * Math.max(0f, cosine);
+        transform[3] = Math.max(-16f, Math.min(16f,
                 angle * 16f / (float) (Math.PI / 2.0)));
-        return new float[]{x, y, scale, rotationY};
     }
 
     private void applyCardTransform(View card, float[] transform) {
@@ -789,39 +800,40 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         incoming.setClickable(false);
         addView(incoming, new FrameLayout.LayoutParams(dp(88), dp(50)));
 
-        List<FrameLayout> moving = new ArrayList<>(slotViews);
-        float[][] fromTransforms = new float[visibleCount][];
-        float[][] toTransforms = new float[visibleCount][];
         for (int i = 0; i < visibleCount; i++) {
-            fromTransforms[i] = cardTransform(wheelAngle(i, visibleCount));
-            toTransforms[i] = cardTransform(wheelAngle(i, visibleCount) - delta * step);
-            moving.get(i).setClickable(false);
+            setCardTransform(wheelAngle(i, visibleCount), fromTransforms[i]);
+            setCardTransform(wheelAngle(i, visibleCount) - delta * step, toTransforms[i]);
+            slotViews.get(i).setClickable(false);
         }
-        float[] incomingFrom = cardTransform(incomingAngle);
-        float[] incomingTo = cardTransform(targetAngle);
-        applyCardTransform(incoming, incomingFrom);
-        // Attached wheel cards keep stable hardware layers during their navigation animation.
+        setCardTransform(incomingAngle, incomingFromTransform);
+        setCardTransform(targetAngle, incomingToTransform);
+        applyCardTransform(incoming, incomingFromTransform);
         animating = true;
+
         android.animation.ValueAnimator animator = android.animation.ValueAnimator.ofFloat(0f, 1f);
         animator.setDuration(220);
         animator.setInterpolator(new android.view.animation.DecelerateInterpolator());
         animator.addUpdateListener(animation -> {
             float progress = (float) animation.getAnimatedValue();
-            // Precomputed geometry avoids repeated trigonometry during every animation frame.
-            for (int i = 0; i < moving.size(); i++) {
-                interpolateCardTransform(moving.get(i), fromTransforms[i], toTransforms[i], progress);
+            // Precomputed reusable geometry keeps the animation frame path allocation-free.
+            for (int i = 0; i < visibleCount; i++) {
+                interpolateCardTransform(slotViews.get(i), fromTransforms[i], toTransforms[i], progress);
             }
-            interpolateCardTransform(incoming, incomingFrom, incomingTo, progress);
+            interpolateCardTransform(incoming, incomingFromTransform, incomingToTransform, progress);
         });
         animator.addListener(new android.animation.AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(android.animation.Animator animation) {
-                List<FrameLayout> oldSlots = new ArrayList<>(slotViews);
-                FrameLayout outgoing = PinnedWheelSlotOrder.outgoing(oldSlots, delta);
-                List<FrameLayout> nextSlots = PinnedWheelSlotOrder.rotate(oldSlots, incoming, delta);
+                // Rotate the existing slot list in-place instead of copying it twice per keypress.
+                FrameLayout outgoing;
+                if (delta > 0) {
+                    outgoing = slotViews.remove(0);
+                    slotViews.add(incoming);
+                } else {
+                    outgoing = slotViews.remove(slotViews.size() - 1);
+                    slotViews.add(0, incoming);
+                }
                 incoming.setFocusable(true);
                 incoming.setClickable(true);
-                slotViews.clear();
-                slotViews.addAll(nextSlots);
 
                 // Focus the new center before detaching only the edge card.
                 View center = getCenterChild();
