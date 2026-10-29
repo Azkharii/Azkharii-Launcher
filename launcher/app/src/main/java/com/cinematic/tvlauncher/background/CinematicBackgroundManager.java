@@ -401,9 +401,9 @@ public class CinematicBackgroundManager {
     }
 
     /**
-     * Decode the wallpaper close to the TV's actual output resolution rather than retaining a
-     * multi-megapixel camera image in each fullscreen ImageView. For API 28+, ImageDecoder can
-     * resize during decode, avoiding a large intermediate bitmap and a second scaled copy.
+     * Decode near the TV viewport. Reuse a compatible preview already on disk (including one
+     * left by an earlier version); otherwise resize during decode to avoid a large intermediate
+     * bitmap and a second scaled copy.
      */
     private int wallpaperTargetWidth() {
         DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
