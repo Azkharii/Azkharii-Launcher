@@ -416,8 +416,10 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         String scheme = uri.getScheme();
         if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
             URLConnection connection = new URL(uri.toString()).openConnection();
-            connection.setConnectTimeout(3500);
-            connection.setReadTimeout(4000);
+            // Bound slow publisher endpoints so later visible posters are not held up
+            // behind multiple long network timeouts in the three-worker queue.
+            connection.setConnectTimeout(2000);
+            connection.setReadTimeout(2500);
             connection.setUseCaches(true);
             connection.setRequestProperty("Accept", "image/*,*/*;q=0.5");
             return connection.getInputStream();
