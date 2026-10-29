@@ -15,6 +15,7 @@ import android.util.Log;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.widget.ImageView;
 
+import com.cinematic.tvlauncher.R;
 import com.cinematic.tvlauncher.config.LauncherConfig;
 
 import java.io.File;
@@ -127,6 +128,9 @@ public class CinematicBackgroundManager {
 
                 if (destroyed || Thread.currentThread().isInterrupted()) return;
                 queue.setImages(images);
+                if (currentWallpaperFile != null && currentWallpaperFile.isFile()) {
+                    queue.markDisplayed(currentWallpaperFile);
+                }
                 Log.i(TAG, "Loaded " + images.size() + " local background images");
                 // Do not make the first real wallpaper wait through the normal 10-second
                 // rotation interval. Decode it immediately after discovery, off the UI thread.
@@ -179,6 +183,7 @@ public class CinematicBackgroundManager {
     public boolean showWallpaper(File file) {
         if (file == null || !isSupportedImage(file) || destroyed || !isVisible) return false;
         mainHandler.removeCallbacks(rotationRunnable);
+        queue.markDisplayed(file);
         if (pendingDecode != null) pendingDecode.cancel(true);
         if (crossfadeAnimator != null) {
             crossfadeAnimator.cancel();
@@ -215,7 +220,40 @@ public class CinematicBackgroundManager {
             File parent = canonicalFile.getParentFile();
             boolean managed = parent != null && (parent.equals(privateDir)
                     || (legacy != null && parent.equals(legacy.getCanonicalFile())));
-            return managed && canonicalFile.isFile() && canonicalFile.delete();
+            if (!managed || !canonicalFile.isFile()) return false;
+
+            boolean deletingCurrent = false;
+            if (currentWallpaperFile != null) {
+                deletingCurrent = canonicalFile.equals(currentWallpaperFile.getCanonicalFile());
+            }
+            if (!canonicalFile.delete()) return false;
+
+            if (deletingCurrent) {
+                // Drop any decode/crossfade associated with the removed file and restore a valid
+                // default frame before reloading the remaining local collection.
+                workGeneration.incrementAndGet();
+                if (pendingDecode != null) {
+                    pendingDecode.cancel(true);
+                    pendingDecode = null;
+                }
+                if (crossfadeAnimator != null) {
+                    crossfadeAnimator.cancel();
+                    crossfadeAnimator = null;
+                }
+                currentWallpaperFile = null;
+                hasRealWallpaperLoaded = false;
+                isFrontA = true;
+                imageViewA.setImageResource(R.drawable.default_wallpaper);
+                imageViewB.setImageResource(R.drawable.default_wallpaper);
+                imageViewA.setAlpha(1f);
+                imageViewB.setAlpha(0f);
+                imageViewA.setScaleX(1f);
+                imageViewA.setScaleY(1f);
+                imageViewB.setScaleX(1f);
+                imageViewB.setScaleY(1f);
+            }
+            loadLocalBackgrounds();
+            return true;
         } catch (Exception e) {
             Log.w(TAG, "Could not delete managed wallpaper", e);
             return false;
