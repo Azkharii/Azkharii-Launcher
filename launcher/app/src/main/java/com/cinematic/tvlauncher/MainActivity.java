@@ -1626,7 +1626,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
                         libraryOverlay.setTranslationY(0);
                         libraryOverlay.animate().setListener(null);
                         carouselView.requestFocus();
-                        if (performanceHud != null) performanceHud.start();
+                        if (performanceHud != null && activityResumed) performanceHud.start();
                     }
                 })
                 .start();
