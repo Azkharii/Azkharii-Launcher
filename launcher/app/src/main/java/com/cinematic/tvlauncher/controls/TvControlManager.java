@@ -483,8 +483,10 @@ public class TvControlManager {
         for (int i = 0; i < list.getChildCount(); i++) {
             View row = list.getChildAt(i);
             if (row.getBottom() < viewportTop || row.getTop() > viewportBottom) continue;
-            if (!(row instanceof android.widget.LinearLayout) || row.getChildCount() == 0) continue;
-            View frame = row.getChildAt(0);
+            if (!(row instanceof android.widget.LinearLayout)) continue;
+            android.widget.LinearLayout rowLayout = (android.widget.LinearLayout) row;
+            if (rowLayout.getChildCount() == 0) continue;
+            View frame = rowLayout.getChildAt(0);
             if (!(frame instanceof FrameLayout) || ((FrameLayout) frame).getChildCount() == 0) continue;
             View child = ((FrameLayout) frame).getChildAt(0);
             if (!(child instanceof ImageView)) continue;
@@ -548,8 +550,10 @@ public class TvControlManager {
     private void clearBackgroundThumbnailViews(android.widget.LinearLayout list) {
         for (int i = 0; i < list.getChildCount(); i++) {
             View row = list.getChildAt(i);
-            if (!(row instanceof android.widget.LinearLayout) || row.getChildCount() == 0) continue;
-            View frame = row.getChildAt(0);
+            if (!(row instanceof android.widget.LinearLayout)) continue;
+            android.widget.LinearLayout rowLayout = (android.widget.LinearLayout) row;
+            if (rowLayout.getChildCount() == 0) continue;
+            View frame = rowLayout.getChildAt(0);
             if (!(frame instanceof FrameLayout) || ((FrameLayout) frame).getChildCount() == 0) continue;
             View child = ((FrameLayout) frame).getChildAt(0);
             if (child instanceof ImageView) ((ImageView) child).setImageDrawable(null);
