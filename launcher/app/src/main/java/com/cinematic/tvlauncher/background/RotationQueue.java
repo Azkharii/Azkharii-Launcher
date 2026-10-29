@@ -43,6 +43,18 @@ public class RotationQueue {
         }
     }
 
+    /** Marks the file currently displayed so the next random choice avoids it. */
+    public synchronized void markDisplayed(File file) {
+        if (file != null && imageFiles.contains(file)) lastImage = file;
+    }
+
+    /** Removes a file from rotation without rebuilding the full queue. */
+    public synchronized void removeImage(File file) {
+        if (file == null) return;
+        imageFiles.remove(file);
+        if (file.equals(lastImage)) lastImage = null;
+    }
+
     public synchronized int size() {
         return imageFiles.size();
     }
