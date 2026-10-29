@@ -239,6 +239,12 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
 
             rootContainer.getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus, newFocus) -> {
                 if (newFocus == null || newFocus == focusPositionDot) return;
+                // The manual-update control is intentionally only a floating arrow, not a card
+                // or a target for the carousel's positional marker.
+                if (newFocus.getId() == R.id.btn_check_updates) {
+                    focusPositionDot.setVisibility(View.GONE);
+                    return;
+                }
                 if (rebuildingPinnedWheel) return;
                 // Dedicated carousel callbacks use the card surface/edge, avoiding a transient
                 // marker jump when focus itself is on a containing view.
