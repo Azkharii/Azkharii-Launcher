@@ -860,11 +860,17 @@ public class TvControlManager {
      * Open verified TV settings intent with fallback.
      */
     /** Entry point for remotes that emit KEYCODE_SETTINGS or KEYCODE_MENU. */
-    public void openSettingsFromRemote() {
-        handleSettingsAction();
+    public boolean openSettingsFromRemote() {
+        // If no route can be launched, let Activity.dispatchKeyEvent delegate the original
+        // physical key to Android/OEM handling instead of swallowing it.
+        return handleSettingsAction(false);
     }
 
     private void handleSettingsAction() {
+        handleSettingsAction(true);
+    }
+
+    private boolean handleSettingsAction(boolean showUnavailableToast) {
         Intent[] settingsIntents = new Intent[] {
                 new Intent("android.settings.TV_SETTINGS"), // OEM / Android TV settings
                 new Intent(Settings.ACTION_SETTINGS)
@@ -875,7 +881,7 @@ public class TvControlManager {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 activity.startActivity(intent);
                 Log.i(TAG, "Opened system settings with action " + intent.getAction());
-                return;
+                return true;
             } catch (ActivityNotFoundException | SecurityException e) {
                 Log.w(TAG, "System settings action unavailable: " + intent.getAction(), e);
             } catch (Exception e) {
@@ -926,7 +932,7 @@ public class TvControlManager {
                 activity.startActivity(launch);
                 Log.i(TAG, "Opened TV settings activity fallback: "
                         + best.activityInfo.packageName + "/" + best.activityInfo.name);
-                return;
+                return true;
             }
         } catch (ActivityNotFoundException | SecurityException e) {
             Log.w(TAG, "Could not launch the TV settings activity fallback", e);
@@ -934,8 +940,11 @@ public class TvControlManager {
             Log.w(TAG, "Failed while looking for a TV settings activity", e);
         }
 
-        Toast.makeText(activity,
-                "No se pudieron abrir Ajustes. El sistema no expuso una actividad compatible.",
-                Toast.LENGTH_LONG).show();
+        if (showUnavailableToast) {
+            Toast.makeText(activity,
+                    "No se pudieron abrir Ajustes. El sistema no expuso una actividad compatible.",
+                    Toast.LENGTH_LONG).show();
+        }
+        return false;
     }
 }
