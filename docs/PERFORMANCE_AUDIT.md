@@ -144,6 +144,7 @@ No UI component, navigation behavior, Watch Next feature, wallpaper crossfade, o
 - The recent-app carousel previously wrote the selected package/index to SharedPreferences on each selection callback. Writes are debounced for 300 ms and flushed on pause; activating an app persists its identity immediately.
 - “Mis fondos” no longer shows the potentially stale “Fondo mostrado” label or generated file names. Every managed background gets a small sampled thumbnail decoded off the UI thread after bounds inspection and reduced to RGB_565; the full-resolution wallpaper path remains on its background worker. The dialog title and inner padding were adjusted to keep text away from the border.
 - Inputs is reduced to 56×38 dp and Photos to 38×38 dp. Both labels are constrained to their own bounds with centered gravity and ellipsizing.
+- Continue Watching poster views switch from `CENTER_CROP` to `FIT_CENTER` and reserve the lower title strip outside the artwork viewport. This prevents landscape poster art from losing its sides or being covered by the title.
 - Release builds now enable R8 and unused-resource shrinking. The blanket keep-all rule was removed; the XML click handler has one narrow keep rule. CI now assembles an unsigned optimized release variant as well as the debug artifact to exercise the shrinker.
 
 ### Validation status
