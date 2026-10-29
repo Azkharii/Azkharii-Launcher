@@ -65,12 +65,6 @@ public final class UpdateManager {
 
     public void checkNow(){
         if(closed||!resumed||activity.isFinishing()||activity.isDestroyed())return;
-        if(BuildConfig.DEBUG||BuildConfig.APPLICATION_ID.endsWith(".debug")){
-            Toast.makeText(activity,
-                    "La comprobación de actualizaciones requiere la versión estable del launcher.",
-                    Toast.LENGTH_LONG).show();
-            return;
-        }
         if(checking){
             Toast.makeText(activity,"Ya se está comprobando si hay actualizaciones…",Toast.LENGTH_SHORT).show();
             return;
@@ -217,7 +211,7 @@ public final class UpdateManager {
             if(status<200||status>=300)return null;
             String content=readLimited(connection.getInputStream(),4096);
             java.util.regex.Matcher matcher=java.util.regex.Pattern
-                    .compile("(?i)(?:^|\\\\s)([0-9a-f]{64})(?:\\\\s|$)")
+                    .compile("(?i)(?:^|\\s)([0-9a-f]{64})(?:\\s|$)")
                     .matcher(content);
             return matcher.find()?matcher.group(1):null;
         }catch(Exception e){
