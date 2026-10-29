@@ -84,7 +84,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private static final String KEY_TV_LISTINGS_PERMISSION_REQUESTED = "tv_listings_permission_requested";
     private static final String PERMISSION_READ_TV_LISTINGS = "android.permission.READ_TV_LISTINGS";
     private static final int REQUEST_TV_LISTINGS_PERMISSION = 4701;
-    private static final ExecutorService HUD_COLOR_EXECUTOR =
+    private static final ThreadPoolExecutor HUD_COLOR_EXECUTOR =
             new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
 
     private CinematicBackgroundManager backgroundManager;
@@ -97,7 +97,9 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private TextView tvClock;
     private TextView tvDate;
     private TextView tvWeather;
-    private int hudColorGeneration = 0;
+    // Generation is read on the palette worker as well as the main thread.
+    private volatile int hudColorGeneration = 0;
+    private java.util.concurrent.Future<?> hudColorSampleTask;
     private ValueAnimator hudColorAnimator;
     private GradientDrawable weatherGlassBackground;
     private int currentHudAccent = Color.rgb(168, 232, 255);
@@ -993,13 +995,34 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         if (current == null || current.getConstantState() == null) return;
         Drawable snapshot = current.getConstantState().newDrawable(getResources()).mutate();
         int request = ++hudColorGeneration;
-        HUD_COLOR_EXECUTOR.execute(() -> {
-            int accent = sampleHudAccent(snapshot);
-            runOnUiThread(() -> {
-                if (request != hudColorGeneration || isFinishing()) return;
-                animateAdaptiveHudAccent(accent);
+
+        // Palette results from obsolete wallpapers are discarded anyway; cancel them before
+        // sampling so rapid/manual changes do not leave CPU work queued behind stale images.
+        cancelHudColorSampleTask();
+        try {
+            hudColorSampleTask = HUD_COLOR_EXECUTOR.submit(() -> {
+                if (Thread.currentThread().isInterrupted() || request != hudColorGeneration) return;
+                int accent = sampleHudAccent(snapshot);
+                if (Thread.currentThread().isInterrupted() || request != hudColorGeneration) return;
+                runOnUiThread(() -> {
+                    if (request != hudColorGeneration || isFinishing() || isDestroyed()) return;
+                    hudColorSampleTask = null;
+                    animateAdaptiveHudAccent(accent);
+                });
             });
-        });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            hudColorSampleTask = null;
+        }
+    }
+
+    private void cancelHudColorSampleTask() {
+        java.util.concurrent.Future<?> task = hudColorSampleTask;
+        hudColorSampleTask = null;
+        if (task == null) return;
+        task.cancel(true);
+        // Future returned by ThreadPoolExecutor.submit is a RunnableFuture. Removing it avoids
+        // draining cancelled wallpaper samples from the unbounded queue one by one later.
+        if (task instanceof Runnable) HUD_COLOR_EXECUTOR.remove((Runnable) task);
     }
 
     private int sampleHudAccent(Drawable wallpaper) {
@@ -1025,6 +1048,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             sample.getPixels(pixels, 0, sampleWidth, 0, 0, sampleWidth, sampleHeight);
 
             for (int pixel : pixels) {
+                if (Thread.currentThread().isInterrupted()) return Color.rgb(155, 203, 215);
                 if (Color.alpha(pixel) < 96) continue;
                 Color.colorToHSV(pixel, hsv);
                 // Ignore near-neutral highlights, crushed shadows and clipped whites.
@@ -1815,6 +1839,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         if (weatherWidgetManager != null) weatherWidgetManager.onPause();
         if (continueWatchingWheel != null) continueWatchingWheel.pauseBackgroundWork();
         hudColorGeneration++;
+        cancelHudColorSampleTask();
         if (hudColorAnimator != null) {
             hudColorAnimator.cancel();
             hudColorAnimator = null;
@@ -1824,6 +1849,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     @Override
     protected void onDestroy() {
         activityResumed = false;
+        cancelHudColorSampleTask();
         if (performanceHud != null) performanceHud.close();
         unregisterLauncherAppsCallback();
         if (updateManager != null) updateManager.close();
