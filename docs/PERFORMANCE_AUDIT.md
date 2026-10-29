@@ -14,7 +14,7 @@ This pattern points to sustained rendering/composition work, not proof of a pack
 
 ## Confirmed source-level cause candidate
 
-`CinematicBackgroundManager.startSubtleMotion()` creates an infinite `ValueAnimator` (`RESTART`/reverse) that scales a full-screen wallpaper layer continuously for the entire foreground lifetime. The resource default enabled it. This causes continuous full-screen invalidation/composition even when the user is not navigating, and is a high-confidence, low-risk candidate to test first on this low-power TV.
+`CinematicBackgroundManager.startSubtleMotion()` previously created an infinite full-screen wallpaper scaling animation. It was disabled by default, and this follow-up removes the implementation, configuration fields, resource entries, and obsolete test assertions entirely. The crossfade and 10-second rotation remain.
 
 ## Change in this branch
 
