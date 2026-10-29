@@ -1619,9 +1619,10 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
                 Log.i(TAG, "Remote settings/menu key received: "
                         + KeyEvent.keyCodeToString(keyCode));
                 if (controlManager != null) {
-                    if (event.getRepeatCount() == 0) controlManager.openSettingsFromRemote();
-                    return true;
+                    if (event.getRepeatCount() > 0) return true;
+                    if (controlManager.openSettingsFromRemote()) return true;
                 }
+                // If our own route fails, preserve Android/Hisense's native key handling.
             }
             if (controlManager != null && (keyCode == KeyEvent.KEYCODE_SEARCH
                     || keyCode == KeyEvent.KEYCODE_ASSIST
