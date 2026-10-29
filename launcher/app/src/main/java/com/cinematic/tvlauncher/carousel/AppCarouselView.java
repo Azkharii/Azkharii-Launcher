@@ -275,6 +275,7 @@ public class AppCarouselView extends FrameLayout {
 
             final int itemIndex = i;
             card.setFocusable(true);
+            card.setVisibility(View.GONE); // Only the bounded visible window is activated.
             card.setClickable(true);
             card.setContentDescription(item.getLabel());
             card.setOnLongClickListener(v -> {
