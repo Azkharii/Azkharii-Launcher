@@ -16,11 +16,14 @@ This pattern points to sustained rendering/composition work, not proof of a pack
 
 `CinematicBackgroundManager.startSubtleMotion()` previously created an infinite full-screen wallpaper scaling animation. It was disabled by default, and this follow-up removes the implementation, configuration fields, resource entries, and obsolete test assertions entirely. The crossfade and 10-second rotation remain.
 
-## Change in this branch
+## Latest source follow-up — 2026-10-29
 
-- Set `background_motion_enabled` to `false` by default.
-- Preserve the existing slow zoom implementation and `background_motion_duration_sec` setting so the effect remains available as an opt-in.
-- Keep 10-second wallpaper rotation, 600 ms crossfade, app discovery, recent apps, pinned apps, Continue Watching, wallpaper-aware HUD, controls, and update checking unchanged.
+- The unused wallpaper zoom animation, animator state, configuration fields, and resource entries have been removed completely. Wallpaper rotation and crossfade remain.
+- OTA checks are user-initiated through the unframed arrow to the left of Entradas; periodic checks and clock-based retry timers have been removed. Manual checking also works in debug builds to open the release page, but a debug APK is never offered as an in-place stable update.
+- The release checker falls back to the release's `.sha256` sidecar when GitHub's APK asset metadata omits `digest`. It does not download/install an update without a valid SHA-256.
+- Imported wallpaper selections are copied to app-private storage on a worker thread. The photo dialog now opens a managed library with current wallpaper, Use, and Delete actions. Deleting the active wallpaper restores a valid default image before the remaining collection is refreshed.
+- Main carousel movement now updates only the previous/new visible card ranges and reuses animation buffers. This removes the all-installed-app scan and per-move array allocations from each D-pad step; animation/glow effects remain.
+- The previous active zoom-enable bullets and old scheduler-policy tests are superseded by the removal above.
 
 ## Static review notes
 
