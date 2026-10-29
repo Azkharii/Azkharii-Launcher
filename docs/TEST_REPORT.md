@@ -256,3 +256,10 @@ The automatic update path remains implemented but is not deployable against the 
 - **Backgrounds:** the transition fades in one incoming full-screen layer above the still-opaque outgoing layer (one alpha animator); the outgoing bitmap is then cleared. Bounded wallpaper-preview-v1 disk-cache logic uses a 32 MiB size cap and a source/viewport fingerprint; preview writes are deferred 700 ms so compression is not scheduled in the middle of the crossfade/HUD transition. First-time decode and cache write still need real-device profiling; repeat-rotation CPU reduction is a hypothesis, not a measured result.
 - **Mis Fondos and top controls:** rows/dialog and thumbnails are smaller; Entradas 48×34 dp and Fotos 32×32 dp.
 - **Status:** code is awaiting CI on this branch. Physical-TV checks are still required for CPU peaks over multiple rotations, RAM after cache warm-up, wheel focus/edge behavior, thumbnail fidelity, and label legibility. Do not infer an actual performance gain from source inspection alone.
+
+
+## UI refinement — compact panels and poster alignment (2026-10-29)
+
+The Photos, saved-backgrounds and input-source dialogs now use smaller dimensions and tighter spacing. The Wi-Fi, Settings and Search controls share a reduced footprint. Continue Watching cards now use a landscape proportion aligned with their artwork; idle cards no longer show a detached perimeter frame, while the focused-card illumination remains.
+
+**Validation:** GitHub Actions is required for code/test/build checks. Visual confirmation on the TV remains pending for focus navigation, poster/title overlap, dialog sizing and readability at the device's display density.
