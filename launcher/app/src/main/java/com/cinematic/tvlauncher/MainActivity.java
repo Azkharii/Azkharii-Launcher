@@ -636,6 +636,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         iconView.setPadding(padding, padding, padding, padding);
         iconView.setBackgroundResource(R.drawable.pinned_app_icon_bg);
         if (item.getIcon() != null) iconView.setImageDrawable(item.getIcon());
+        // Keep the five small animated icons' layers warm instead of recreating them per keypress.
+        iconView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         iconView.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus) {
                 applyAppFocusGlow(iconView, (AppItem) iconView.getTag());
@@ -699,23 +701,46 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         return (float) (-Math.PI / 2.0 + (Math.PI * slot / (visibleCount - 1)));
     }
 
-    private void placePinnedWheelIcon(View icon, float angle) {
-        if (pinnedAppsWheel == null || icon == null) return;
+    private float[] pinnedWheelTransform(float angle) {
         float iconSize = dp(48);
-        float viewportHeight = pinnedAppsWheel.getHeight() > 0
+        float viewportHeight = pinnedAppsWheel != null && pinnedAppsWheel.getHeight() > 0
                 ? pinnedAppsWheel.getHeight() : dp(310);
-        float radius = Math.max(dp(1), (viewportHeight - iconSize) / 2f);
+        // Tighten the arc slightly; the full-height radius left excessive gaps between pins.
+        float radius = Math.max(dp(1), (viewportHeight - iconSize) / 2f) * 0.82f;
         float centerX = iconSize / 2f;
         float centerY = viewportHeight / 2f;
         float x = centerX + radius * (float) Math.cos(angle) - iconSize / 2f;
         float y = centerY + radius * (float) Math.sin(angle) - iconSize / 2f;
-        icon.setX(x);
-        icon.setY(y);
         float scale = 0.82f + 0.18f * Math.max(0f, (float) Math.cos(angle));
+        float rotationY = Math.max(-18f, Math.min(18f,
+                -angle * 18f / (float) (Math.PI / 2.0)));
+        return new float[]{x, y, scale, rotationY};
+    }
+
+    private void applyPinnedWheelTransform(View icon, float[] transform) {
+        if (icon == null || transform == null) return;
+        icon.setX(transform[0]);
+        icon.setY(transform[1]);
+        icon.setScaleX(transform[2]);
+        icon.setScaleY(transform[2]);
+        icon.setRotationY(transform[3]);
+        icon.setAlpha(1f);
+    }
+
+    private void applyInterpolatedPinnedWheelTransform(View icon, float[] from, float[] to, float progress) {
+        if (icon == null || from == null || to == null) return;
+        icon.setX(from[0] + (to[0] - from[0]) * progress);
+        icon.setY(from[1] + (to[1] - from[1]) * progress);
+        float scale = from[2] + (to[2] - from[2]) * progress;
         icon.setScaleX(scale);
         icon.setScaleY(scale);
-        icon.setRotationY(Math.max(-18f, Math.min(18f, -angle * 18f / (float) (Math.PI / 2.0))));
+        icon.setRotationY(from[3] + (to[3] - from[3]) * progress);
         icon.setAlpha(1f);
+    }
+
+    private void placePinnedWheelIcon(View icon, float angle) {
+        if (pinnedAppsWheel == null || icon == null) return;
+        applyPinnedWheelTransform(icon, pinnedWheelTransform(angle));
     }
 
     private void layoutPinnedWheelIcons() {
@@ -736,32 +761,38 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         float step = (float)(Math.PI / (count - 1));
         int centerSlot = count / 2;
         int incomingSlot = delta > 0 ? count - 1 : 0;
-        float incomingAngle = pinnedWheelAngle(incomingSlot,count) + delta * step;
-        float targetAngle = pinnedWheelAngle(incomingSlot,count);
+        float incomingAngle = pinnedWheelAngle(incomingSlot, count) + delta * step;
+        float targetAngle = pinnedWheelAngle(incomingSlot, count);
         int incomingItemIndex = Math.floorMod(newSelection + incomingSlot - centerSlot, pinnedWheelItems.size());
         ImageView incoming = createPinnedWheelIcon(pinnedWheelItems.get(incomingItemIndex));
         incoming.setFocusable(false);
         incoming.setClickable(false);
-        pinnedAppsWheel.addView(incoming, new FrameLayout.LayoutParams(dp(48),dp(48)));
-        placePinnedWheelIcon(incoming,incomingAngle);
+        pinnedAppsWheel.addView(incoming, new FrameLayout.LayoutParams(dp(48), dp(48)));
+
         List<View> moving = new ArrayList<>(pinnedWheelSlotViews);
-        for (View icon : moving) {
-            icon.setClickable(false);
-            if (icon.getLayerType() != View.LAYER_TYPE_HARDWARE) {
-                icon.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-            }
+        float[][] fromTransforms = new float[count][];
+        float[][] toTransforms = new float[count][];
+        for (int i = 0; i < count; i++) {
+            fromTransforms[i] = pinnedWheelTransform(pinnedWheelAngle(i, count));
+            toTransforms[i] = pinnedWheelTransform(pinnedWheelAngle(i, count) - delta * step);
+            moving.get(i).setClickable(false);
         }
-        // Match ContinueWatchingWheelView: cache only the cards participating in this short slide.
-        incoming.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        float[] incomingFrom = pinnedWheelTransform(incomingAngle);
+        float[] incomingTo = pinnedWheelTransform(targetAngle);
+        applyPinnedWheelTransform(incoming, incomingFrom);
+
         pinnedWheelAnimating = true;
         lastPinnedDotUpdateAtMs = 0L;
-        ValueAnimator animator = ValueAnimator.ofFloat(0f,1f);
+        ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
         animator.setDuration(280);
         animator.setInterpolator(new DecelerateInterpolator());
         animator.addUpdateListener(animation -> {
-            float t=(float)animation.getAnimatedValue();
-            for(int i=0;i<moving.size();i++) placePinnedWheelIcon(moving.get(i),pinnedWheelAngle(i,count)-delta*step*t);
-            placePinnedWheelIcon(incoming,incomingAngle+(targetAngle-incomingAngle)*t);
+            float t = (float) animation.getAnimatedValue();
+            // Geometry is computed once per keypress; frames perform interpolation only.
+            for (int i = 0; i < moving.size(); i++) {
+                applyInterpolatedPinnedWheelTransform(moving.get(i), fromTransforms[i], toTransforms[i], t);
+            }
+            applyInterpolatedPinnedWheelTransform(incoming, incomingFrom, incomingTo, t);
             // Avoid global-visible-rectangle traversal on every animation frame.
             long now = android.os.SystemClock.uptimeMillis();
             if (now - lastPinnedDotUpdateAtMs >= 50L) {
@@ -787,16 +818,10 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
                     nextCenter.requestFocus();
                     updateFocusPositionDot(nextCenter);
                 }
-                if (outgoing != null) {
-                    outgoing.setLayerType(View.LAYER_TYPE_NONE, null);
-                    pinnedAppsWheel.removeView(outgoing);
-                }
+                if (outgoing != null) pinnedAppsWheel.removeView(outgoing);
                 for(ImageView card:pinnedWheelSlotViews) {
                     card.setFocusable(true);
                     card.setClickable(true);
-                    if (card.getLayerType() != View.LAYER_TYPE_NONE) {
-                        card.setLayerType(View.LAYER_TYPE_NONE, null);
-                    }
                     pinnedAppsWheel.bringChildToFront(card);
                 }
                 pinnedWheelSelectedIndex=newSelection;
