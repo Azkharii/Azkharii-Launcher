@@ -475,6 +475,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         outer.setClipChildren(false);
         outer.setClipToPadding(false);
         outer.setBackgroundColor(Color.TRANSPARENT);
+        // The small visible set moves repeatedly; retain its render layers between selections.
+        outer.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         outer.setContentDescription(item.title);
         outer.setOnClickListener(v -> activate(item));
         // Keep the artwork card clean: no mirrored side strip or black fade beside the poster.
@@ -499,7 +501,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         poster.setClipToOutline(true);
         LayoutParams posterLp = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT);
         // Reserve the title strip below the artwork instead of letting it hide the cover's bottom.
-        posterLp.setMargins(dp(4), dp(4), dp(4), dp(24));
+        posterLp.setMargins(dp(4), dp(4), dp(4), dp(4));
         surface.addView(poster, posterLp);
 
         View gloss = new View(getContext());
@@ -508,6 +510,15 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         LayoutParams glossLp = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT);
         glossLp.setMargins(dp(4), dp(4), dp(4), dp(4));
         surface.addView(gloss, glossLp);
+
+        // A translucent bottom scrim lets the title sit over the poster instead of a separate box.
+        View titleScrim = new View(getContext());
+        titleScrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{0x00090C14, 0x65090C14, 0xD8090C14}));
+        LayoutParams titleScrimLp = new LayoutParams(
+                LayoutParams.MATCH_PARENT, dp(28), Gravity.BOTTOM);
+        titleScrimLp.setMargins(dp(4), 0, dp(4), dp(4));
+        surface.addView(titleScrim, titleScrimLp);
 
         int progressPercent = WatchNextEntryPolicy.progressPercent(
                 item.lastPlaybackPositionMillis, item.durationMillis);
@@ -543,9 +554,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         title.setIncludeFontPadding(false);
         title.setPadding(dp(3), dp(1), dp(3), dp(1));
         title.setShadowLayer(dp(2), 0f, dp(1), 0xD0000000);
-        title.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0x52090C14, 0xE6090C14}));
-        LayoutParams titleLp = new LayoutParams(LayoutParams.MATCH_PARENT, dp(20), Gravity.BOTTOM);
+        title.setBackgroundColor(Color.TRANSPARENT);
+        LayoutParams titleLp = new LayoutParams(LayoutParams.MATCH_PARENT, dp(18), Gravity.BOTTOM);
         titleLp.setMargins(dp(4), 0, dp(4), dp(4));
         surface.addView(title, titleLp);
         outer.addView(surface);
@@ -705,7 +715,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         return (float) (-Math.PI / 2.0 + (Math.PI * slot / (visibleCount - 1)));
     }
 
-    private void placeCard(View card, float angle) {
+    private float[] cardTransform(float angle) {
         int cardWidth = dp(76);
         int cardHeight = dp(70);
         int viewportHeight = getHeight() > 0 ? getHeight() : dp(310);
@@ -715,13 +725,36 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         float centerY = viewportHeight / 2f;
         float x = centerX - radius * (float) Math.cos(angle) - cardWidth / 2f;
         float y = centerY + radius * (float) Math.sin(angle) - cardHeight / 2f;
-        card.setX(x);
-        card.setY(y);
         float scale = 0.84f + 0.16f * Math.max(0f, (float) Math.cos(angle));
+        float rotationY = Math.max(-16f, Math.min(16f,
+                angle * 16f / (float) (Math.PI / 2.0)));
+        return new float[]{x, y, scale, rotationY};
+    }
+
+    private void applyCardTransform(View card, float[] transform) {
+        if (card == null || transform == null) return;
+        card.setX(transform[0]);
+        card.setY(transform[1]);
+        card.setScaleX(transform[2]);
+        card.setScaleY(transform[2]);
+        card.setRotationY(transform[3]);
+        card.setAlpha(1f);
+    }
+
+    private void interpolateCardTransform(View card, float[] from, float[] to, float progress) {
+        if (card == null || from == null || to == null) return;
+        card.setX(from[0] + (to[0] - from[0]) * progress);
+        card.setY(from[1] + (to[1] - from[1]) * progress);
+        float scale = from[2] + (to[2] - from[2]) * progress;
         card.setScaleX(scale);
         card.setScaleY(scale);
-        card.setRotationY(Math.max(-16f, Math.min(16f, angle * 16f / (float) (Math.PI / 2.0))));
+        card.setRotationY(from[3] + (to[3] - from[3]) * progress);
         card.setAlpha(1f);
+    }
+
+    private void placeCard(View card, float angle) {
+        if (card == null) return;
+        applyCardTransform(card, cardTransform(angle));
     }
 
     private void layoutWheelCards() {
@@ -747,24 +780,29 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         incoming.setFocusable(false);
         incoming.setClickable(false);
         addView(incoming, new FrameLayout.LayoutParams(dp(76), dp(70)));
-        placeCard(incoming, incomingAngle);
 
         List<FrameLayout> moving = new ArrayList<>(slotViews);
-        for (View child : moving) {
-            child.setClickable(false);
-            child.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        float[][] fromTransforms = new float[visibleCount][];
+        float[][] toTransforms = new float[visibleCount][];
+        for (int i = 0; i < visibleCount; i++) {
+            fromTransforms[i] = cardTransform(wheelAngle(i, visibleCount));
+            toTransforms[i] = cardTransform(wheelAngle(i, visibleCount) - delta * step);
+            moving.get(i).setClickable(false);
         }
-        incoming.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        float[] incomingFrom = cardTransform(incomingAngle);
+        float[] incomingTo = cardTransform(targetAngle);
+        applyCardTransform(incoming, incomingFrom);
         animating = true;
         android.animation.ValueAnimator animator = android.animation.ValueAnimator.ofFloat(0f, 1f);
         animator.setDuration(220);
         animator.setInterpolator(new android.view.animation.DecelerateInterpolator());
         animator.addUpdateListener(animation -> {
             float progress = (float) animation.getAnimatedValue();
+            // Precomputed geometry avoids repeated trigonometry during every animation frame.
             for (int i = 0; i < moving.size(); i++) {
-                placeCard(moving.get(i), wheelAngle(i, visibleCount) - delta * step * progress);
+                interpolateCardTransform(moving.get(i), fromTransforms[i], toTransforms[i], progress);
             }
-            placeCard(incoming, incomingAngle + (targetAngle - incomingAngle) * progress);
+            interpolateCardTransform(incoming, incomingFrom, incomingTo, progress);
         });
         animator.addListener(new android.animation.AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(android.animation.Animator animation) {
@@ -786,14 +824,10 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                     bringChildToFront(card);
                 }
                 selectedIndex = newSelection;
-                for (View card : slotViews) card.setLayerType(View.LAYER_TYPE_NONE, null);
-                incoming.setLayerType(View.LAYER_TYPE_NONE, null);
                 animating = false;
             }
 
             @Override public void onAnimationCancel(android.animation.Animator animation) {
-                for (View card : moving) card.setLayerType(View.LAYER_TYPE_NONE, null);
-                incoming.setLayerType(View.LAYER_TYPE_NONE, null);
                 animating = false;
             }
         });
