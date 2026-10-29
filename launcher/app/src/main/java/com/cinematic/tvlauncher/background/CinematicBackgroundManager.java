@@ -100,7 +100,7 @@ public class CinematicBackgroundManager {
     /** Arms the next rotation only while visible and only when a real wallpaper is available. */
     private void scheduleRotationIfAvailable() {
         mainHandler.removeCallbacks(rotationRunnable);
-        if (isVisible && !destroyed && !queue.isEmpty()) {
+        if (isVisible && !destroyed && queue.size() > 1) {
             mainHandler.postDelayed(rotationRunnable, config.getRotationIntervalSec() * 1000L);
         }
     }
