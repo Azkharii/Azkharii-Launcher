@@ -1045,7 +1045,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         hudColorAnimator = animator;
         // This is a color-only transition; a shorter bounded fade keeps the adaptation natural
         // while reducing redraw time between wallpaper changes.
-        animator.setDuration(900L);
+        // Keep HUD adaptation brief to limit redraw work after a wallpaper transition.
+        animator.setDuration(600L);
         animator.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
         animator.addUpdateListener(animation -> {
             float fraction = (float) animation.getAnimatedValue();
