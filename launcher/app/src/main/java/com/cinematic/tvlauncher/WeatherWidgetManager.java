@@ -441,8 +441,10 @@ public final class WeatherWidgetManager {
     private void setWeatherDrawable(int drawableId) {
         if (label == null) return;
         android.graphics.drawable.Drawable icon = activity.getDrawable(drawableId);
-        label.setCompoundDrawablePadding((int) (8f * activity.getResources().getDisplayMetrics().density + 0.5f));
-        label.setCompoundDrawablesWithIntrinsicBounds(icon, null, null, null);
+        int iconSize = Math.round(14f * activity.getResources().getDisplayMetrics().density);
+        icon.setBounds(0, 0, iconSize, iconSize);
+        label.setCompoundDrawablePadding(Math.round(4f * activity.getResources().getDisplayMetrics().density));
+        label.setCompoundDrawables(icon, null, null, null);
     }
 
     /** Supports the old emoji-prefixed cache format while migrating to vector icons. */

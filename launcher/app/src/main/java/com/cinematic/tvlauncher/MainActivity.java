@@ -1025,19 +1025,19 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             sample.getPixels(pixels, 0, sampleWidth, 0, 0, sampleWidth, sampleHeight);
 
             for (int pixel : pixels) {
-                    if (Color.alpha(pixel) < 96) continue;
-                    Color.colorToHSV(pixel, hsv);
-                    // Ignore near-neutral highlights, crushed shadows and clipped whites.
-                    if (hsv[1] < 0.18f || hsv[2] < 0.16f || hsv[2] > 0.94f) continue;
+                if (Color.alpha(pixel) < 96) continue;
+                Color.colorToHSV(pixel, hsv);
+                // Ignore near-neutral highlights, crushed shadows and clipped whites.
+                if (hsv[1] < 0.18f || hsv[2] < 0.16f || hsv[2] > 0.94f) continue;
 
-                    int bin = Math.min(binCount - 1, (int) (hsv[0] / (360f / binCount)));
-                    double weight = hsv[1] * (0.55d + 0.45d * (1d - Math.abs(hsv[2] - 0.55d)));
-                    double radians = Math.toRadians(hsv[0]);
-                    hueX[bin] += Math.cos(radians) * weight;
-                    hueY[bin] += Math.sin(radians) * weight;
-                    saturationSum[bin] += hsv[1] * weight;
-                    valueSum[bin] += hsv[2] * weight;
-                    weightSum[bin] += weight;
+                int bin = Math.min(binCount - 1, (int) (hsv[0] / (360f / binCount)));
+                double weight = hsv[1] * (0.55d + 0.45d * (1d - Math.abs(hsv[2] - 0.55d)));
+                double radians = Math.toRadians(hsv[0]);
+                hueX[bin] += Math.cos(radians) * weight;
+                hueY[bin] += Math.sin(radians) * weight;
+                saturationSum[bin] += hsv[1] * weight;
+                valueSum[bin] += hsv[2] * weight;
+                weightSum[bin] += weight;
             }
 
             int dominantBin = 0;
