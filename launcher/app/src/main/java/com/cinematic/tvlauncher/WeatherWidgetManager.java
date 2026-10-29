@@ -86,13 +86,14 @@ public final class WeatherWidgetManager {
         paused = false;
         showCachedOrPrompt();
         if (!hasLocationPermission()) return;
+        // Read the persisted timestamp first; a fresh cache does not even need a connectivity query.
+        long lastAttempt = preferences.getLong(KEY_LAST_ATTEMPT,
+                preferences.getLong(KEY_UPDATED, 0L));
+        if (!WeatherRefreshPolicy.isRefreshDue(lastAttempt, System.currentTimeMillis())) return;
         if (!hasValidatedInternet()) {
             showCachedOrUnavailable();
             return;
         }
-        long lastAttempt = preferences.getLong(KEY_LAST_ATTEMPT,
-                preferences.getLong(KEY_UPDATED, 0L));
-        if (!WeatherRefreshPolicy.isRefreshDue(lastAttempt, System.currentTimeMillis())) return;
         requestLocation();
     }
 
