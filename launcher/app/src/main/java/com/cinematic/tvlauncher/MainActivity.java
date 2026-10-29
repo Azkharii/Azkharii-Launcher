@@ -21,7 +21,6 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.UserHandle;
-import android.text.format.DateFormat;
 import android.util.Log;
 import android.view.Window;
 import android.view.Gravity;
@@ -462,8 +461,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private void updateClockAndDate() {
         Date now = new Date();
         Locale locale = Locale.getDefault();
-        boolean is24h = DateFormat.is24HourFormat(this);
-        SimpleDateFormat timeFormat = new SimpleDateFormat(is24h ? "HH:mm" : "h:mm a", locale);
+        SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", locale);
         if (tvClock != null) {
             String timeText = timeFormat.format(now);
             if (!timeText.equals(lastClockText)) {
