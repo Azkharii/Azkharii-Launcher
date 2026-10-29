@@ -515,11 +515,36 @@ public class TvControlManager {
         if ("image/png".equalsIgnoreCase(mimeType)) extension = "png";
         else if ("image/webp".equalsIgnoreCase(mimeType)) extension = "webp";
         else if ("image/jpeg".equalsIgnoreCase(mimeType) || "image/jpg".equalsIgnoreCase(mimeType)) extension = "jpg";
-        File target = new File(directory, "custom_background_" + stamp + "_" + index + "." + extension);
+
+        String displayName = null;
+        android.database.Cursor cursor = null;
+        try {
+            cursor = activity.getContentResolver().query(
+                    uri, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int column = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (column >= 0) displayName = cursor.getString(column);
+            }
+        } catch (RuntimeException e) {
+            Log.d(TAG, "Source image name is unavailable; using a generic label.", e);
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+
+        String readableName = displayName == null ? "fondo" : displayName.trim();
+        int dot = readableName.lastIndexOf('.');
+        if (dot > 0) readableName = readableName.substring(0, dot);
+        readableName = readableName.replaceAll("[^A-Za-z0-9._-]", "_");
+        readableName = readableName.replaceAll("_+", "_");
+        if (readableName.length() > 56) readableName = readableName.substring(0, 56);
+        if (readableName.isEmpty()) readableName = "fondo";
+
+        File target = new File(directory, "custom_background_" + stamp + "_" + index
+                + "_" + readableName + "." + extension);
         try (InputStream input = activity.getContentResolver().openInputStream(uri);
              OutputStream output = new FileOutputStream(target)) {
             if (input == null) return false;
-            byte[] buffer = new byte[8192];
+            byte[] buffer = new byte[16 * 1024];
             int read;
             while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
             return target.length() > 0;
