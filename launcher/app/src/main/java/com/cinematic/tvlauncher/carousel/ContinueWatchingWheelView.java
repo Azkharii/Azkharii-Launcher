@@ -450,7 +450,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             MediaItem item = items.get(itemIndex);
             FrameLayout card = createCard(item);
             slotViews.add(card);
-            addView(card, new FrameLayout.LayoutParams(dp(76), dp(70)));
+            addView(card, new FrameLayout.LayoutParams(dp(88), dp(50)));
             placeCard(card, wheelAngle(slot, visibleCount));
         }
 
@@ -464,8 +464,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     }
 
     private FrameLayout createCard(MediaItem item) {
-        int cardWidth = dp(76);
-        int cardHeight = dp(70);
+        int cardWidth = dp(88);
+        int cardHeight = dp(50);
 
         FrameLayout outer = new FrameLayout(getContext());
         outer.setId(View.generateViewId());
@@ -495,13 +495,13 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         poster.setScaleType(ImageView.ScaleType.FIT_CENTER);
         GradientDrawable posterMask = new GradientDrawable();
         posterMask.setShape(GradientDrawable.RECTANGLE);
-        posterMask.setCornerRadius(dp(6));
-        posterMask.setColor(0x15111624);
+        posterMask.setCornerRadius(dp(5));
+        posterMask.setColor(Color.TRANSPARENT);
         poster.setBackground(posterMask);
         poster.setClipToOutline(true);
         LayoutParams posterLp = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT);
         // Reserve the title strip below the artwork instead of letting it hide the cover's bottom.
-        posterLp.setMargins(dp(4), dp(4), dp(4), dp(4));
+        posterLp.setMargins(dp(2), dp(2), dp(2), dp(2));
         surface.addView(poster, posterLp);
 
         View gloss = new View(getContext());
@@ -514,10 +514,10 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         // A translucent bottom scrim lets the title sit over the poster instead of a separate box.
         View titleScrim = new View(getContext());
         titleScrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0x00090C14, 0x65090C14, 0xD8090C14}));
+                new int[]{0x00090C14, 0x52090C14, 0xC0090C14}));
         LayoutParams titleScrimLp = new LayoutParams(
-                LayoutParams.MATCH_PARENT, dp(28), Gravity.BOTTOM);
-        titleScrimLp.setMargins(dp(4), 0, dp(4), dp(4));
+                LayoutParams.MATCH_PARENT, dp(24), Gravity.BOTTOM);
+        titleScrimLp.setMargins(dp(2), 0, dp(2), dp(2));
         surface.addView(titleScrim, titleScrimLp);
 
         int progressPercent = WatchNextEntryPolicy.progressPercent(
@@ -526,7 +526,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             View progressTrack = new View(getContext());
             progressTrack.setBackgroundColor(0x77070B12);
             LayoutParams trackLp = new LayoutParams(LayoutParams.MATCH_PARENT, dp(2), Gravity.BOTTOM);
-            trackLp.setMargins(dp(4), 0, dp(4), dp(24));
+            trackLp.setMargins(dp(2), 0, dp(2), dp(20));
             surface.addView(progressTrack, trackLp);
 
             View progressFill = new View(getContext());
@@ -535,10 +535,10 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             progressBackground.setCornerRadius(dp(2));
             progressFill.setBackground(progressBackground);
             LayoutParams progressLp = new LayoutParams(
-                    Math.max(dp(2), Math.round((cardWidth - dp(8)) * progressPercent / 100f)),
+                    Math.max(dp(2), Math.round((cardWidth - dp(4)) * progressPercent / 100f)),
                     dp(2), Gravity.BOTTOM | Gravity.LEFT);
-            progressLp.leftMargin = dp(4);
-            progressLp.bottomMargin = dp(24);
+            progressLp.leftMargin = dp(2);
+            progressLp.bottomMargin = dp(20);
             surface.addView(progressFill, progressLp);
         }
 
@@ -555,8 +555,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         title.setPadding(dp(3), dp(1), dp(3), dp(1));
         title.setShadowLayer(dp(2), 0f, dp(1), 0xD0000000);
         title.setBackgroundColor(Color.TRANSPARENT);
-        LayoutParams titleLp = new LayoutParams(LayoutParams.MATCH_PARENT, dp(18), Gravity.BOTTOM);
-        titleLp.setMargins(dp(4), 0, dp(4), dp(4));
+        LayoutParams titleLp = new LayoutParams(LayoutParams.MATCH_PARENT, dp(16), Gravity.BOTTOM);
+        titleLp.setMargins(dp(2), 0, dp(2), dp(2));
         surface.addView(title, titleLp);
         outer.addView(surface);
         outer.setOnFocusChangeListener((v, hasFocus) -> {
@@ -599,18 +599,23 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         if (surface == null || item == null || glowState == null) return;
         int accent = item.accentColor;
         surface.setBackground(createCardBackground(accent, focused));
-        surface.setElevation(dp(focused ? 8 : 1));
+        surface.setElevation(dp(focused ? 6 : 0));
         glowState.glow.setFocused(focused);
-        if (surface.getForeground() != glowState.glow) surface.setForeground(glowState.glow);
+        // Keep the poster edge clean at rest; illuminate only the selected artwork.
+        if (focused) {
+            if (surface.getForeground() != glowState.glow) surface.setForeground(glowState.glow);
+        } else if (surface.getForeground() != null) {
+            surface.setForeground(null);
+        }
     }
 
     private GradientDrawable createCardBackground(int accent, boolean focused) {
         GradientDrawable background = new GradientDrawable();
         background.setShape(GradientDrawable.RECTANGLE);
-        background.setCornerRadius(dp(9));
+        background.setCornerRadius(dp(6));
         background.setColor(focused
                 ? Color.argb(30, Color.red(accent), Color.green(accent), Color.blue(accent))
-                : 0x12111624);
+                : Color.TRANSPARENT);
         return background;
     }
 
@@ -716,8 +721,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     }
 
     private float[] cardTransform(float angle) {
-        int cardWidth = dp(76);
-        int cardHeight = dp(70);
+        int cardWidth = dp(88);
+        int cardHeight = dp(50);
         int viewportHeight = getHeight() > 0 ? getHeight() : dp(310);
         int viewportWidth = getWidth() > 0 ? getWidth() : dp(210);
         float radius = Math.max(dp(1), (viewportHeight - cardHeight) / 2f);
@@ -779,7 +784,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         FrameLayout incoming = createCard(items.get(incomingIndex));
         incoming.setFocusable(false);
         incoming.setClickable(false);
-        addView(incoming, new FrameLayout.LayoutParams(dp(76), dp(70)));
+        addView(incoming, new FrameLayout.LayoutParams(dp(88), dp(50)));
 
         List<FrameLayout> moving = new ArrayList<>(slotViews);
         float[][] fromTransforms = new float[visibleCount][];
