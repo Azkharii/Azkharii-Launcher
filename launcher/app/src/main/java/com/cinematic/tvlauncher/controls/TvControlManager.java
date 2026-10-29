@@ -428,8 +428,8 @@ public class TvControlManager {
         if (file == null) return "Fondo";
         String name = file.getName();
         if (name.startsWith("custom_background_")) {
-            String[] parts = name.split("_", 6);
-            if (parts.length == 6 && !parts[5].trim().isEmpty()) return parts[5];
+            String[] parts = name.split("_", 7);
+            if (parts.length == 7 && !parts[6].trim().isEmpty()) return parts[6];
         }
         return name;
     }
