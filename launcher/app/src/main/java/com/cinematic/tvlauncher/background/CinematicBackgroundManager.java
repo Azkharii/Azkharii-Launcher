@@ -35,8 +35,8 @@ import java.security.MessageDigest;
 import java.nio.charset.StandardCharsets;
 
 /**
- * CinematicBackgroundManager — Controls Google Photos background rotation,
- * 600ms crossfade transitions, downsampling, and optional subtle motion.
+ * CinematicBackgroundManager — Controls local wallpaper rotation, viewport-sized decoding,
+ * bounded preview caching, crossfade transitions, and optional subtle motion.
  * Fulfills MASTER_PROMPT Annex C.2 and C.3.
  */
 public class CinematicBackgroundManager {
@@ -226,7 +226,7 @@ public class CinematicBackgroundManager {
                     }
                     // The worker may still encode the first-use derivative; let GC reclaim stale bitmaps.
                 });
-                cacheWallpaperPreviewIfNeeded(file, bitmap);
+                scheduleWallpaperPreviewCache(file, bitmap);
             });
             return true;
         } catch (java.util.concurrent.RejectedExecutionException e) {
@@ -350,7 +350,7 @@ public class CinematicBackgroundManager {
                     }
                     // The worker may still encode the first-use derivative; let GC reclaim stale bitmaps.
                 });
-                cacheWallpaperPreviewIfNeeded(nextFile, bitmap);
+                scheduleWallpaperPreviewCache(nextFile, bitmap);
             });
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
             // The launcher is shutting down; no background work should be restarted.
@@ -457,8 +457,21 @@ public class CinematicBackgroundManager {
      * fingerprint changes if its path, size, timestamp or viewport changes. Alpha-bearing images
      * bypass JPEG caching to preserve transparency.
      */
+    private void scheduleWallpaperPreviewCache(File source, Bitmap bitmap) {
+        // Let the crossfade and wallpaper-adaptive HUD animation settle before JPEG compression
+        // consumes CPU. This work is off the UI thread and is only needed on the first visit.
+        mainHandler.postDelayed(() -> {
+            if (destroyed || source == null || !source.isFile()) return;
+            try {
+                decodeExecutor.execute(() -> cacheWallpaperPreviewIfNeeded(source, bitmap));
+            } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                // Cache is optional; a later visit can still decode the original safely.
+            }
+        }, 700L);
+    }
+
     private void cacheWallpaperPreviewIfNeeded(File source, Bitmap bitmap) {
-        if (source == null || bitmap == null || bitmap.hasAlpha()
+        if (source == null || !source.isFile() || bitmap == null || bitmap.hasAlpha()
                 || Thread.currentThread().isInterrupted() || destroyed) return;
         File previewFile = wallpaperPreviewCacheFile(
                 source, wallpaperTargetWidth(), wallpaperTargetHeight());
