@@ -6,7 +6,10 @@ import android.app.Dialog;
 import android.content.Context;
 import android.content.ComponentName;
 import android.content.pm.ResolveInfo;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.view.Window;
 import android.view.WindowManager;
 import android.content.ClipData;
@@ -33,6 +36,8 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 import android.view.View;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -273,22 +278,18 @@ public class TvControlManager {
         Dialog dialog = new Dialog(activity);
         android.widget.LinearLayout content = new android.widget.LinearLayout(activity);
         content.setOrientation(android.widget.LinearLayout.VERTICAL);
-        content.setPadding(dp(20), dp(18), dp(20), dp(18));
+        content.setPadding(dp(28), dp(22), dp(28), dp(22));
         content.setBackgroundResource(R.drawable.liquid_glass_dialog_bg);
 
         TextView title = new TextView(activity);
         title.setText("MIS FONDOS");
         title.setTextColor(android.graphics.Color.WHITE);
-        title.setTextSize(20);
+        title.setTextSize(19);
+        title.setIncludeFontPadding(false);
+        title.setPadding(dp(6), dp(4), dp(6), dp(8));
         title.setTypeface(android.graphics.Typeface.create(
                 "sans-serif-medium", android.graphics.Typeface.BOLD));
         content.addView(title);
-
-        TextView current = new TextView(activity);
-        current.setTextColor(0xFFB8DFF5);
-        current.setTextSize(12);
-        current.setPadding(0, dp(6), 0, dp(12));
-        content.addView(current);
 
         android.widget.ScrollView scroll = new android.widget.ScrollView(activity);
         scroll.setFillViewport(true);
@@ -313,7 +314,7 @@ public class TvControlManager {
 
         dialog.setContentView(content);
         dialog.setCancelable(true);
-        populateManagedBackgroundRows(list, current, dialog);
+        populateManagedBackgroundRows(list, dialog);
         Window window = dialog.getWindow();
         if (window != null) {
             window.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
@@ -338,13 +339,8 @@ public class TvControlManager {
     }
 
     private void populateManagedBackgroundRows(
-            android.widget.LinearLayout list, TextView current, Dialog dialog) {
+            android.widget.LinearLayout list, Dialog dialog) {
         list.removeAllViews();
-        File active = backgroundManager.getCurrentWallpaperFile();
-        current.setText(active == null
-                ? "Fondo mostrado: predeterminado o no identificado"
-                : "Fondo mostrado: " + displayBackgroundName(active));
-
         List<File> files = backgroundManager.getManagedBackgrounds();
         if (files.isEmpty()) {
             TextView empty = new TextView(activity);
@@ -360,15 +356,46 @@ public class TvControlManager {
             android.widget.LinearLayout row = new android.widget.LinearLayout(activity);
             row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
             row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            row.setPadding(0, dp(4), 0, dp(4));
+            row.setPadding(0, dp(3), 0, dp(3));
 
-            TextView name = new TextView(activity);
-            name.setText(displayBackgroundName(file));
-            name.setTextColor(android.graphics.Color.WHITE);
-            name.setTextSize(11);
-            name.setMaxLines(2);
-            name.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
-            row.addView(name, new android.widget.LinearLayout.LayoutParams(0, dp(44), 1f));
+            // Identify each imported image visually with a low-resolution preview, not a filename.
+            FrameLayout previewFrame = new FrameLayout(activity);
+            GradientDrawable previewBorder = new GradientDrawable();
+            previewBorder.setColor(0xFF111722);
+            previewBorder.setCornerRadius(dp(5));
+            previewBorder.setStroke(Math.max(1, dp(1)), 0x887FC9EA);
+            previewFrame.setBackground(previewBorder);
+            previewFrame.setClipToOutline(true);
+            ImageView preview = new ImageView(activity);
+            preview.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            preview.setContentDescription("Vista previa del fondo");
+            String thumbnailPath = file.getAbsolutePath();
+            preview.setTag(thumbnailPath);
+            // Keep all thumbnail file I/O and pixel decoding off the UI thread.
+            try {
+                BACKGROUND_IMPORT_EXECUTOR.execute(() -> {
+                    Bitmap previewBitmap = decodeBackgroundThumbnail(file);
+                    if (previewBitmap == null) return;
+                    activity.runOnUiThread(() -> {
+                        if (activity.isFinishing() || activity.isDestroyed()
+                                || preview.getParent() == null
+                                || !thumbnailPath.equals(preview.getTag())) {
+                            previewBitmap.recycle();
+                            return;
+                        }
+                        preview.setImageBitmap(previewBitmap);
+                    });
+                });
+            } catch (java.util.concurrent.RejectedExecutionException ignored) {
+                // The manager is shutting down; the empty thumbnail frame remains harmless.
+            }
+            FrameLayout.LayoutParams previewImageParams = new FrameLayout.LayoutParams(-1, -1);
+            previewImageParams.setMargins(dp(2), dp(2), dp(2), dp(2));
+            previewFrame.addView(preview, previewImageParams);
+            android.widget.LinearLayout.LayoutParams previewParams =
+                    new android.widget.LinearLayout.LayoutParams(dp(72), dp(44));
+            previewParams.setMargins(dp(2), 0, dp(8), 0);
+            row.addView(previewFrame, previewParams);
 
             TextView use = new TextView(activity);
             use.setText("USAR");
@@ -405,33 +432,51 @@ public class TvControlManager {
                     new android.widget.LinearLayout.LayoutParams(dp(66), dp(40));
             row.addView(remove, removeParams);
             remove.setOnClickListener(v -> new AlertDialog.Builder(activity)
-                    .setTitle("Eliminar fondo")
-                    .setMessage("Se eliminará la copia guardada dentro de Cinematic TV. Esta acción no borra la imagen original de la galería.\n\n"
-                            + displayBackgroundName(file))
+                    .setTitle("Eliminar este fondo")
+                    .setMessage("Se eliminará la copia guardada dentro de Cinematic TV. Esta acción no borra la imagen original de la galería.")
                     .setNegativeButton("Cancelar", null)
                     .setPositiveButton("Eliminar", (d, which) -> {
                         if (backgroundManager.deleteManagedBackground(file)) {
                             Toast.makeText(activity, "Fondo eliminado de Cinematic TV.",
                                     Toast.LENGTH_SHORT).show();
-                            populateManagedBackgroundRows(list, current, dialog);
+                            populateManagedBackgroundRows(list, dialog);
                         } else {
                             Toast.makeText(activity, "No se pudo eliminar ese fondo.",
                                     Toast.LENGTH_LONG).show();
                         }
                     }).show());
 
-            list.addView(row, new android.widget.LinearLayout.LayoutParams(-1, dp(48)));
+            list.addView(row, new android.widget.LinearLayout.LayoutParams(-1, dp(54)));
         }
     }
 
-    private String displayBackgroundName(File file) {
-        if (file == null) return "Fondo";
-        String name = file.getName();
-        if (name.startsWith("custom_background_")) {
-            String[] parts = name.split("_", 7);
-            if (parts.length == 7 && !parts[6].trim().isEmpty()) return parts[6];
+    /**
+     * Decode only a thumbnail. Full-resolution wallpapers stay on the background worker.
+     */
+    private Bitmap decodeBackgroundThumbnail(File file) {
+        if (file == null || !file.isFile()) return null;
+        try {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
+
+            int targetWidth = Math.max(1, dp(72) * 2);
+            int targetHeight = Math.max(1, dp(44) * 2);
+            int sampleSize = 1;
+            while (bounds.outWidth / (sampleSize * 2) >= targetWidth
+                    && bounds.outHeight / (sampleSize * 2) >= targetHeight) {
+                sampleSize *= 2;
+            }
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inSampleSize = sampleSize;
+            options.inPreferredConfig = Bitmap.Config.RGB_565;
+            options.inDither = true;
+            return BitmapFactory.decodeFile(file.getAbsolutePath(), options);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Could not create a wallpaper thumbnail", e);
+            return null;
         }
-        return name;
     }
 
     private void openBackgroundPicker() {

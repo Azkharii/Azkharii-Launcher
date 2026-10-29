@@ -45,7 +45,9 @@ android {
     buildTypes {
         release {
             if (hasReleaseSigning) signingConfig signingConfigs.release
-            minifyEnabled false
+            // R8 removes unreachable code; resource shrinking drops unreferenced assets.
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {

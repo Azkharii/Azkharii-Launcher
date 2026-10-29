@@ -71,6 +71,17 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private static final String KEY_LAST_APP_INDEX = "last_app_index";
     private static final String KEY_LAST_APP_PACKAGE = "last_app_package";
     private static final String KEY_PINNED_APPS = "pinned_apps";
+    // Persist selection after navigation settles instead of writing on every D-pad repeat.
+    private int pendingRecentIndex = -1;
+    private String pendingRecentPackage;
+    private final Runnable persistRecentSelectionRunnable = () -> {
+        if (pendingRecentIndex < 0 || pendingRecentPackage == null) return;
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+                .putInt(KEY_LAST_APP_INDEX, pendingRecentIndex)
+                .putString(KEY_LAST_APP_PACKAGE, pendingRecentPackage).apply();
+        pendingRecentIndex = -1;
+        pendingRecentPackage = null;
+    };
     private static final String KEY_TV_LISTINGS_PERMISSION_REQUESTED = "tv_listings_permission_requested";
     private static final String PERMISSION_READ_TV_LISTINGS = "android.permission.READ_TV_LISTINGS";
     private static final int REQUEST_TV_LISTINGS_PERMISSION = 4701;
@@ -131,8 +142,12 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     // Cache per-package icon-derived colors for the navigation marker only.
     private final android.util.LruCache<String, Integer> iconAccentCache =
             new android.util.LruCache<>(128);
+    // Avoid rasterizing the same icon repeatedly while its wheel slot gains focus.
+    private final android.util.LruCache<String, Integer> appFocusGlowAccentCache =
+            new android.util.LruCache<>(128);
     private int pinnedWheelSelectedIndex = 0;
     private boolean pinnedWheelAnimating = false;
+    private long lastPinnedDotUpdateAtMs;
     private boolean rebuildingPinnedWheel = false;
     private static final int PINNED_WHEEL_VISIBLE_ITEMS = 5;
     private boolean libraryVisible = false;
@@ -437,9 +452,10 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             tvFocusedAppLabel.setText(item.getLabel());
             focusController.recordSelectedApp(index);
             if (!libraryVisible && carouselView != null) {
-                getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
-                        .putInt(KEY_LAST_APP_INDEX, index)
-                        .putString(KEY_LAST_APP_PACKAGE, item.getPackageName()).apply();
+                pendingRecentIndex = index;
+                pendingRecentPackage = item.getPackageName();
+                lifecycleHandler.removeCallbacks(persistRecentSelectionRunnable);
+                lifecycleHandler.postDelayed(persistRecentSelectionRunnable, 300L);
                 Runnable updateRecentFocusDot = () -> {
                     View focus = getCurrentFocus();
                     if (focus == carouselView || (focus != null && isDescendantOf(focus, carouselView))) {
@@ -463,6 +479,9 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     @Override
     public void onItemActivated(int index, AppItem item) {
         if (item == null) return;
+        lifecycleHandler.removeCallbacks(persistRecentSelectionRunnable);
+        pendingRecentIndex = -1;
+        pendingRecentPackage = null;
 
         // Persist last opened app index across restarts
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -726,8 +745,16 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         pinnedAppsWheel.addView(incoming, new FrameLayout.LayoutParams(dp(48),dp(48)));
         placePinnedWheelIcon(incoming,incomingAngle);
         List<View> moving = new ArrayList<>(pinnedWheelSlotViews);
-        for (View icon : moving) icon.setClickable(false);
+        for (View icon : moving) {
+            icon.setClickable(false);
+            if (icon.getLayerType() != View.LAYER_TYPE_HARDWARE) {
+                icon.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+            }
+        }
+        // Match ContinueWatchingWheelView: cache only the cards participating in this short slide.
+        incoming.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         pinnedWheelAnimating = true;
+        lastPinnedDotUpdateAtMs = 0L;
         ValueAnimator animator = ValueAnimator.ofFloat(0f,1f);
         animator.setDuration(280);
         animator.setInterpolator(new DecelerateInterpolator());
@@ -735,8 +762,15 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             float t=(float)animation.getAnimatedValue();
             for(int i=0;i<moving.size();i++) placePinnedWheelIcon(moving.get(i),pinnedWheelAngle(i,count)-delta*step*t);
             placePinnedWheelIcon(incoming,incomingAngle+(targetAngle-incomingAngle)*t);
-            View focused=getCurrentFocus();
-            if(focused!=null && isDescendantOf(focused,pinnedAppsWheel)) updateFocusPositionDot(focused);
+            // Avoid global-visible-rectangle traversal on every animation frame.
+            long now = android.os.SystemClock.uptimeMillis();
+            if (now - lastPinnedDotUpdateAtMs >= 50L) {
+                lastPinnedDotUpdateAtMs = now;
+                View focused = getCurrentFocus();
+                if (focused != null && isDescendantOf(focused, pinnedAppsWheel)) {
+                    updateFocusPositionDot(focused);
+                }
+            }
         });
         animator.addListener(new AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) {
@@ -753,10 +787,16 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
                     nextCenter.requestFocus();
                     updateFocusPositionDot(nextCenter);
                 }
-                if(outgoing!=null) pinnedAppsWheel.removeView(outgoing);
+                if (outgoing != null) {
+                    outgoing.setLayerType(View.LAYER_TYPE_NONE, null);
+                    pinnedAppsWheel.removeView(outgoing);
+                }
                 for(ImageView card:pinnedWheelSlotViews) {
                     card.setFocusable(true);
                     card.setClickable(true);
+                    if (card.getLayerType() != View.LAYER_TYPE_NONE) {
+                        card.setLayerType(View.LAYER_TYPE_NONE, null);
+                    }
                     pinnedAppsWheel.bringChildToFront(card);
                 }
                 pinnedWheelSelectedIndex=newSelection;
@@ -1005,7 +1045,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         hudColorAnimator = animator;
         // This is a color-only transition; a shorter bounded fade keeps the adaptation natural
         // while reducing redraw time between wallpaper changes.
-        animator.setDuration(900L);
+        // Keep HUD adaptation brief to limit redraw work after a wallpaper transition.
+        animator.setDuration(600L);
         animator.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
         animator.addUpdateListener(animation -> {
             float fraction = (float) animation.getAnimatedValue();
@@ -1170,7 +1211,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     }
 
     private void applyAppFocusGlow(ImageView view, AppItem item) {
-        int color = sampleAppColor(item == null ? null : item.getIcon());
+        int color = getCachedAppFocusGlowAccent(item);
         int red = android.graphics.Color.red(color), green = android.graphics.Color.green(color), blue = android.graphics.Color.blue(color);
         GradientDrawable outer = new GradientDrawable();
         outer.setShape(GradientDrawable.OVAL);
@@ -1189,6 +1230,18 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         halo.setLayerInset(1, -dp(2), -dp(2), -dp(2), -dp(2));
         view.setBackground(halo);
         view.setElevation(dp(8));
+    }
+
+    private int getCachedAppFocusGlowAccent(AppItem item) {
+        if (item == null) return sampleAppColor(null);
+        String packageName = item.getPackageName();
+        if (packageName != null) {
+            Integer cached = appFocusGlowAccentCache.get(packageName);
+            if (cached != null) return cached;
+        }
+        int color = sampleAppColor(item.getIcon());
+        if (packageName != null) appFocusGlowAccentCache.put(packageName, color);
+        return color;
     }
 
     private int sampleAppColor(Drawable source) {
@@ -1675,6 +1728,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     @Override
     protected void onPause() {
         super.onPause();
+        lifecycleHandler.removeCallbacks(persistRecentSelectionRunnable);
+        persistRecentSelectionRunnable.run();
         activityResumed = false;
         if (performanceHud != null) performanceHud.stop();
         lifecycleHandler.removeCallbacks(packageRefreshRunnable);

@@ -235,3 +235,15 @@ The automatic update path remains implemented but is not deployable against the 
 - **Physical Hisense CPU/RAM comparison:** NOT TESTED after these changes. The user's latest reference remains a short rendering burst (RenderThread 77.4%, Mali backend 29.0%) followed by sleeping threads; it is not a before/after result.
 - **Visual and interaction regression checks:** NOT TESTED on the physical TV. Focus movement, the adaptive glow, wallpaper timing, and Continue Watching must be checked on-device after the final APK builds.
 - **Resource deletion:** no production code, UI component, or drawable was deleted because the inspected source did not establish any as unused. Changes instead eliminate redundant invalidations and idle worker residency.
+
+ 
+## Follow-up — performance/UI optimization branch (2026-10-29)
+
+- **Pinned-app wheel:** transient hardware layers added for the moving cards; layers are released after the slide. Focus-marker geometry updates are throttled to 50 ms during animation. Glow-color sampling is cached per package.
+- **Recent-app carousel:** selected package/index persistence is debounced to avoid repeated SharedPreferences writes during D-pad scrolling; pending selection is flushed when the Activity pauses.
+- **Managed wallpapers:** removed stale “Fondo mostrado” status and file-name labels. Low-resolution thumbnails distinguish the images and their file I/O/decoding runs off the UI thread; the title gets additional inset so the initial “M” and other glyphs stay away from the dialog edge.
+- **Inputs/Photos controls:** Inputs reduced to 56×38 dp and Photos to 38×38 dp. Their single-line labels are centered and ellipsized within the button bounds.
+- **Continue Watching covers:** switched the poster view to `FIT_CENTER` and reserved a separate bottom title strip, so landscape cover art should remain fully visible rather than cropped. Physical-TV visual confirmation remains pending.
+- **Wallpaper transitions:** Android 9+ decodes with `ImageDecoder` to a viewport-sized bitmap and low-memory policy instead of holding oversized source images. Android 8.x retains the sampled BitmapFactory fallback. Crossfade duration is 400 ms (previously 600 ms) and adaptive HUD tint animation 600 ms (previously 900 ms). Expected to lower decoded bitmap memory and total transition redraw time; actual TV CPU/RAM measurements remain pending.
+- **Release APK:** R8 code shrinking and unused-resource shrinking enabled; the blanket keep-all rule removed, retaining narrowly scoped rules for XML-inflated carousel constructors and the XML click handler. CI includes an optimized release assembly step.
+- **Status:** hosted CI/build validation and physical TV CPU/RAM and visual checks are **PENDING**. These are source-level changes, not proof of a measured CPU reduction or a specific APK-size reduction; report actual CI APK sizes and device samples after they are available.

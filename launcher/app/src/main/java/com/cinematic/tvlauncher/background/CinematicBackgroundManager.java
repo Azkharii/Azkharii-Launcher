@@ -7,6 +7,7 @@ import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.ImageDecoder;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -393,7 +394,9 @@ public class CinematicBackgroundManager {
     }
 
     /**
-     * Downsample bitmap to match screen dimensions, avoiding OOM (Annex C.2).
+     * Decode the wallpaper close to the TV's actual output resolution rather than retaining a
+     * multi-megapixel camera image in each fullscreen ImageView. For API 28+, ImageDecoder can
+     * resize during decode, avoiding a large intermediate bitmap and a second scaled copy.
      */
     private Bitmap decodeSampledBitmap(File file) {
         try {
@@ -402,18 +405,40 @@ public class CinematicBackgroundManager {
             int reqWidth = metrics.widthPixels > 0 ? metrics.widthPixels : 1920;
             int reqHeight = metrics.heightPixels > 0 ? metrics.heightPixels : 1080;
 
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                ImageDecoder.Source source = ImageDecoder.createSource(file);
+                return ImageDecoder.decodeBitmap(source, (decoder, info, sourceIgnored) -> {
+                    if (Thread.currentThread().isInterrupted() || destroyed) {
+                        decoder.setTargetSize(1, 1);
+                        return;
+                    }
+                    int sourceWidth = Math.max(1, info.getSize().getWidth());
+                    int sourceHeight = Math.max(1, info.getSize().getHeight());
+                    // Keep the original aspect ratio and decode only the smallest image that
+                    // can fill the screen's center-cropped viewport without upscaling.
+                    double scale = Math.max(reqWidth / (double) sourceWidth,
+                            reqHeight / (double) sourceHeight);
+                    scale = Math.min(1d, scale);
+                    int targetWidth = Math.max(1, (int) Math.ceil(sourceWidth * scale));
+                    int targetHeight = Math.max(1, (int) Math.ceil(sourceHeight * scale));
+                    decoder.setTargetSize(targetWidth, targetHeight);
+                    decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+                    decoder.setMemorySizePolicy(ImageDecoder.MEMORY_POLICY_LOW_RAM);
+                });
+            }
+
+            // Android 8.x fallback: keep the existing power-of-two downsampling path.
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inJustDecodeBounds = true;
             BitmapFactory.decodeFile(file.getAbsolutePath(), options);
-
             if (Thread.currentThread().isInterrupted() || destroyed) return null;
             options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight);
             options.inJustDecodeBounds = false;
-            options.inPreferredConfig = Bitmap.Config.RGB_565; // Memory efficient for TV wallpapers
-
+            options.inPreferredConfig = Bitmap.Config.RGB_565;
+            options.inDither = true;
             return BitmapFactory.decodeFile(file.getAbsolutePath(), options);
-        } catch (Throwable t) {
-            Log.e(TAG, "Failed to decode background image: " + file.getName(), t);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to decode background image: " + file.getName(), e);
             return null;
         }
     }

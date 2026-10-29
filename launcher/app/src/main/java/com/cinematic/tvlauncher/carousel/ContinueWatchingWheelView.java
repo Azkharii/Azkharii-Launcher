@@ -488,7 +488,9 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         surface.setClipToPadding(true);
         surface.setClipToOutline(true);
         ImageView poster = new ImageView(getContext());
-        poster.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        // Publisher artwork is often 16:9; CENTER_CROP cut off the left/right of the actual
+        // cover inside this compact near-square wheel card. FIT_CENTER preserves the complete art.
+        poster.setScaleType(ImageView.ScaleType.FIT_CENTER);
         GradientDrawable posterMask = new GradientDrawable();
         posterMask.setShape(GradientDrawable.RECTANGLE);
         posterMask.setCornerRadius(dp(6));
@@ -496,7 +498,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         poster.setBackground(posterMask);
         poster.setClipToOutline(true);
         LayoutParams posterLp = new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT);
-        posterLp.setMargins(dp(4), dp(4), dp(4), dp(4));
+        // Reserve the title strip below the artwork instead of letting it hide the cover's bottom.
+        posterLp.setMargins(dp(4), dp(4), dp(4), dp(24));
         surface.addView(poster, posterLp);
 
         View gloss = new View(getContext());
