@@ -154,9 +154,9 @@
 
             <FrameLayout
                 android:id="@+id/btn_inputs"
-                android:layout_width="68dp"
-                android:layout_height="@dimen/control_button_size"
-                android:layout_marginEnd="@dimen/control_button_spacing"
+                android:layout_width="56dp"
+                android:layout_height="38dp"
+                android:layout_marginEnd="6dp"
                 android:background="@drawable/control_button_bg"
                 android:focusable="true"
                 android:clickable="true"
@@ -165,12 +165,16 @@
                 android:nextFocusDown="@id/app_carousel">
 
                 <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:paddingStart="3dp"
+                    android:paddingEnd="3dp"
                     android:text="@string/control_inputs"
-                    android:textSize="9sp"
+                    android:textSize="8sp"
+                    android:maxLines="1"
                     android:singleLine="true"
+                    android:ellipsize="end"
                     android:includeFontPadding="false"
                     android:textStyle="bold"
                     android:textColor="@color/text_primary" />
@@ -233,9 +237,9 @@
             </FrameLayout>
             <FrameLayout
                 android:id="@+id/btn_photos"
-                android:layout_width="@dimen/control_button_size"
-                android:layout_height="@dimen/control_button_size"
-                android:layout_marginStart="@dimen/control_button_spacing"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:layout_marginStart="6dp"
                 android:background="@drawable/control_button_bg"
                 android:focusable="true"
                 android:clickable="true"
@@ -245,11 +249,17 @@
                 android:nextFocusDown="@id/app_carousel">
 
                 <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:paddingStart="1dp"
+                    android:paddingEnd="1dp"
                     android:text="FOTOS"
-                    android:textSize="8sp"
+                    android:textSize="7sp"
+                    android:maxLines="1"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
                     android:textStyle="bold"
                     android:textColor="@color/text_primary" />
             </FrameLayout>
