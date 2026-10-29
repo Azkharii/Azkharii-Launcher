@@ -7,7 +7,6 @@ import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -183,23 +182,14 @@ public class CinematicBackgroundManager {
     }
 
     /**
-     * Releases only bitmaps decoded and owned by this manager; resource drawables are never
-     * recycled. Clears the layer before recycling so HWUI cannot draw the old bitmap again.
+     * Drops the manager's reference to an outgoing decoded wallpaper so the bitmap becomes
+     * eligible for reclamation. Do not call Bitmap.recycle() here: HWUI can still be finishing
+     * a frame that references the prior drawable.
      */
     private void clearWallpaperLayer(ImageView layer, boolean restoreDefault) {
         if (layer == null) return;
-        File ownedFile = layer == imageViewA ? wallpaperFileA : wallpaperFileB;
-        Bitmap ownedBitmap = null;
-        if (ownedFile != null && layer.getDrawable() instanceof BitmapDrawable) {
-            ownedBitmap = ((BitmapDrawable) layer.getDrawable()).getBitmap();
-        }
-
         if (restoreDefault) layer.setImageResource(R.drawable.default_wallpaper);
         else layer.setImageDrawable(null);
-
-        if (ownedBitmap != null && !ownedBitmap.isRecycled()) {
-            ownedBitmap.recycle();
-        }
         if (layer == imageViewA) wallpaperFileA = null;
         else if (layer == imageViewB) wallpaperFileB = null;
     }
