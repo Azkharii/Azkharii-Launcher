@@ -335,6 +335,8 @@ public class TvControlManager {
             scroll.setOnScrollChangeListener(null);
             pendingBackgroundThumbnailKeys.clear();
             failedBackgroundThumbnailKeys.clear();
+            // Discard queued work for the closed dialog; an active decode will exit on generation mismatch.
+            ((ThreadPoolExecutor) BACKGROUND_THUMBNAIL_EXECUTOR).getQueue().clear();
             clearBackgroundThumbnailViews(list);
         });
         Window window = dialog.getWindow();
