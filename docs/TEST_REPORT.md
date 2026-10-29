@@ -309,3 +309,13 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - **Continue Watching navigation:** animation geometry buffers are reused, slot order rotates in place, and poster tasks are cancelled/removed from the queue when their card leaves the wheel. Animation timing and visual transforms are unchanged.
 - **Wallpaper changes:** the delayed foreground JPEG encoder was removed; valid preview-cache files from earlier runs are still read. Uncached files will be decoded from their original source on later rotations.
 - **Hosted validation:** pending for this branch. **Physical TV CPU/RAM comparison: NOT TESTED.** No percentage reduction is claimed without a matched on-device run.
+
+
+## Bounded artwork palette cache and pinned-wheel allocation pass — 2026-10-29
+
+- **App library:** added a bounded 128-entry per-package cache for the eight sampled edge colors, average banner color, and icon accent. This reduces repeat bitmap rasterization when a library view is rebuilt; full library views and all illumination remain enabled.
+- **Cache correctness:** invalidates the shared carousel palette cache and MainActivity icon-accent caches on package add/change/remove callbacks, and on resume where LauncherApps callbacks are not supported.
+- **Pinned wheel:** reuses transform buffers sized to the five visible cards, writes transform values in place, and removes the redundant old-slot list copy. Arc geometry, navigation order, focus behavior, glow and 280 ms animation are retained.
+- **Static source checks:** PASS for required cache declarations, invalidation entry points, buffer bounds, and unchanged transform formula.
+- **Automated validation:** pending GitHub Actions for PR #18 (integrity checks, JVM tests, debug APK, optimized release/R8 build).
+- **Physical TV validation:** pending. No FPS, CPU, or RAM improvement is claimed until the same navigation scenarios are measured after installing the built APK.
