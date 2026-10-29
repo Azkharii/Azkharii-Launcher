@@ -86,10 +86,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             Color.rgb(80, 170, 255), Color.rgb(70, 145, 230),
             Color.rgb(85, 155, 245), Color.rgb(100, 180, 250)
     };
-    private static final long CARD_LAYER_IDLE_RELEASE_MS = 1200L;
     private final Handler refreshHandler = new Handler(Looper.getMainLooper());
     private final Runnable scheduledRefresh = this::refreshFromSystem;
-    private final Runnable releaseWheelHardwareLayersRunnable = this::releaseWheelHardwareLayers;
     private WatchNextRepository watchNextRepository;
     private int refreshGeneration;
     private volatile boolean hostPaused = true;
@@ -194,8 +192,6 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         refreshGeneration++;
         artworkGeneration.incrementAndGet();
         refreshHandler.removeCallbacks(scheduledRefresh);
-        refreshHandler.removeCallbacks(releaseWheelHardwareLayersRunnable);
-        releaseWheelHardwareLayers();
         watchNextRepository.unregisterObserver();
         Future<?> query = dataTask;
         dataTask = null;
@@ -479,6 +475,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         outer.setClipChildren(false);
         outer.setClipToPadding(false);
         outer.setBackgroundColor(Color.TRANSPARENT);
+        // These five bounded cards retain warm hardware layers between D-pad moves.
+        outer.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         outer.setContentDescription(item.title);
         outer.setOnClickListener(v -> activate(item));
         // Keep the artwork card clean: no mirrored side strip or black fade beside the poster.
@@ -632,10 +630,12 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         final int stepX = Math.max(1, width / 90);
         final int stepY = Math.max(1, height / 54);
         int fallback = DEFAULT_ACCENT;
+        int[] rowPixels = new int[width];
         long allRed = 0, allGreen = 0, allBlue = 0, allCount = 0;
         for (int y = 0; y < height; y += stepY) {
+            bitmap.getPixels(rowPixels, 0, width, 0, y, width, 1);
             for (int x = 0; x < width; x += stepX) {
-                int pixel = bitmap.getPixel(x, y);
+                int pixel = rowPixels[x];
                 if (Color.alpha(pixel) < 128) continue;
                 int r = Color.red(pixel), g = Color.green(pixel), b = Color.blue(pixel);
                 if (Math.max(r, Math.max(g, b)) < 20) continue;
@@ -665,8 +665,9 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             int[] zone = zones[i];
             long red = 0, green = 0, blue = 0, count = 0;
             for (int y = zone[1]; y < zone[3]; y += stepY) {
+                bitmap.getPixels(rowPixels, 0, width, 0, y, width, 1);
                 for (int x = zone[0]; x < zone[2]; x += stepX) {
-                    int pixel = bitmap.getPixel(x, y);
+                    int pixel = rowPixels[x];
                     if (Color.alpha(pixel) < 128) continue;
                     int r = Color.red(pixel), g = Color.green(pixel), b = Color.blue(pixel);
                     if (Math.max(r, Math.max(g, b)) < 20) continue;
@@ -799,9 +800,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         float[] incomingFrom = cardTransform(incomingAngle);
         float[] incomingTo = cardTransform(targetAngle);
         applyCardTransform(incoming, incomingFrom);
-        // Retain fast transforms while navigating, but don't pin GPU layers indefinitely.
-        refreshHandler.removeCallbacks(releaseWheelHardwareLayersRunnable);
-        promoteWheelHardwareLayers();
+        // Attached wheel cards keep stable hardware layers during their navigation animation.
         animating = true;
         android.animation.ValueAnimator animator = android.animation.ValueAnimator.ofFloat(0f, 1f);
         animator.setDuration(220);
@@ -835,38 +834,13 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 }
                 selectedIndex = newSelection;
                 animating = false;
-                scheduleWheelHardwareLayerRelease();
             }
 
             @Override public void onAnimationCancel(android.animation.Animator animation) {
                 animating = false;
-                scheduleWheelHardwareLayerRelease();
             }
         });
         animator.start();
-    }
-
-    private void promoteWheelHardwareLayers() {
-        for (int i = 0; i < getChildCount(); i++) {
-            View child = getChildAt(i);
-            if (child.getLayerType() != View.LAYER_TYPE_HARDWARE) {
-                child.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-            }
-        }
-    }
-
-    private void scheduleWheelHardwareLayerRelease() {
-        refreshHandler.removeCallbacks(releaseWheelHardwareLayersRunnable);
-        refreshHandler.postDelayed(releaseWheelHardwareLayersRunnable, CARD_LAYER_IDLE_RELEASE_MS);
-    }
-
-    private void releaseWheelHardwareLayers() {
-        for (int i = 0; i < getChildCount(); i++) {
-            View child = getChildAt(i);
-            if (child.getLayerType() != View.LAYER_TYPE_NONE) {
-                child.setLayerType(View.LAYER_TYPE_NONE, null);
-            }
-        }
     }
 
     private void activate(MediaItem item) {

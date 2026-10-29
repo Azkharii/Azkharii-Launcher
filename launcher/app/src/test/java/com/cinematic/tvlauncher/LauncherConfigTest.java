@@ -16,8 +16,8 @@ public class LauncherConfigTest {
 
     private static void testDefaultValues() {
         LauncherConfig config = new LauncherConfig();
-        assert config.getRotationIntervalSec() == 10 : "Default rotation interval must be 10s";
-        assert config.getCrossfadeDurationMs() == 260 : "Default crossfade must be 260ms";
+        assert config.getRotationIntervalSec() == 60 : "Default rotation interval must be 60s";
+        assert config.getCrossfadeDurationMs() == 160 : "Default crossfade must be 160ms";
     }
 
     private static void testIntervalValidation() {

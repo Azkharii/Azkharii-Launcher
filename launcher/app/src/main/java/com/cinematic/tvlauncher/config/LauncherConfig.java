@@ -10,8 +10,8 @@ import com.cinematic.tvlauncher.R;
  */
 public class LauncherConfig {
 
-    public static final int DEFAULT_ROTATION_INTERVAL_SEC = 10;
-    public static final int DEFAULT_CROSSFADE_DURATION_MS = 260;
+    public static final int DEFAULT_ROTATION_INTERVAL_SEC = 60;
+    public static final int DEFAULT_CROSSFADE_DURATION_MS = 160;
     private int rotationIntervalSec = DEFAULT_ROTATION_INTERVAL_SEC;
     private int crossfadeDurationMs = DEFAULT_CROSSFADE_DURATION_MS;
 
