@@ -232,13 +232,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         carouselView.setMaxVisibleCardDistance(2);
         safeContainer = findViewById(R.id.safe_container);
         rootContainer = findViewById(R.id.root_container);
-        // Diagnostic PSS/CPU sampling is opt-in in debug builds. The normal home screen
-        // avoids recurring MemoryInfo allocations and periodic diagnostic TextView updates.
-        if (BuildConfig.DEBUG && rootContainer != null
-                && getIntent().getBooleanExtra(
-                        "com.cinematic.tvlauncher.EXTRA_PERFORMANCE_HUD", false)) {
-            performanceHud = new PerformanceHud(this, rootContainer);
-        }
+        if (rootContainer != null) performanceHud = new PerformanceHud(this, rootContainer);
         libraryOverlay = findViewById(R.id.app_library_overlay);
         libraryCarousel = findViewById(R.id.library_carousel);
         librarySelectedLabel = findViewById(R.id.library_selected_label);
