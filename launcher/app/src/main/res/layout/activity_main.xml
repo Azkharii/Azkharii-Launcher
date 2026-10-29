@@ -198,7 +198,7 @@
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
                     android:text="WIFI"
-                    android:textSize="10sp"
+                    android:textSize="9sp"
                     android:textStyle="bold"
                     android:textColor="@color/text_primary" />
             </FrameLayout>
@@ -282,7 +282,7 @@
                     android:layout_height="wrap_content"
                     android:layout_gravity="center"
                     android:text="⌕"
-                    android:textSize="26sp"
+                    android:textSize="22sp"
                     android:textColor="@color/text_primary" />
             </FrameLayout>
         </LinearLayout>
