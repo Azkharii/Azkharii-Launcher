@@ -226,7 +226,7 @@ public final class UpdateManager {
         if(closed||!resumed||activity.isFinishing()||activity.isDestroyed())return;
         AlertDialog dialog=new AlertDialog.Builder(activity)
                 .setTitle("Actualización publicada")
-                .setMessage("Nueva versión: "+version+"\\n\\n"+reason)
+                .setMessage("Nueva versión: "+version+"\n\n"+reason)
                 .setPositiveButton("Ver publicación",(d,which)->{
                     try{
                         Intent intent=new Intent(Intent.ACTION_VIEW,Uri.parse(releaseUrl));
@@ -250,7 +250,7 @@ public final class UpdateManager {
             return;
         }
         String text=installedVersion+" → "+info.displayVersion
-                +"\\n\\nSe verificará el APK antes de abrir el instalador.";
+                +"\n\nSe verificará el APK antes de abrir el instalador.";
         new AlertDialog.Builder(activity).setTitle("Actualizar Cinematic TV").setMessage(text)
                 .setPositiveButton("Actualizar",(dialog,which)->download(info))
                 .setNegativeButton("Después",null).show();
