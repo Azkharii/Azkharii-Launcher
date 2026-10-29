@@ -222,6 +222,8 @@ No UI component, navigation behavior, Watch Next feature, wallpaper crossfade, o
 - The existing cache stores only a small number of sampled colors; it does not cache full-size bitmaps. The first opening of a cold/evicted library can still sample all app artwork, and this change makes no claim about the cost of creating all library views.
 
 ### Validation boundary
-- Source-anchor checks confirmed the bounded cache, invalidation paths, transform buffers, and preserved transform formula.
-- Pull request #18 runs repository integrity checks, JVM unit tests, and debug plus optimized release/R8 builds. Results must be taken from GitHub Actions, not inferred from this source review.
-- Repeatable same-scene CPU/RAM and focus/visual checks on the Hisense TV remain required before claiming a measured performance improvement.
+- Source-anchor checks confirmed the bounded cache, invalidation paths, five-card transform buffer bounds, and preserved transform formula.
+- **Hosted validation PASS:** GitHub Actions Build run #122 for source commit `1867e1ae8c1ac56920289f9234c210c853adc214` passed repository integrity, all JVM test suites, debug APK compilation, optimized release/R8 compilation, APK inspection, and artifact upload.
+- **Signing validation PASS:** workflow run #76 built the signed APK and verified its signature.
+- Debug artifact SHA-256: `c25497969641d08c2f46adf0295b14948c404ab9cea369a43409a366c2f5ec64` (2,998,786 bytes).
+- **Physical TV validation remains pending:** repeat same-scene CPU/RAM samples and check focus, icon coloring, glow and navigation on the Hisense before claiming a measured performance improvement.
