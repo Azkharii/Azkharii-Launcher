@@ -866,9 +866,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         });
         animator.addListener(new AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) {
-                List<ImageView> oldSlots = new ArrayList<>(pinnedWheelSlotViews);
-                ImageView outgoing = PinnedWheelSlotOrder.outgoing(oldSlots,delta);
-                List<ImageView> nextSlots = PinnedWheelSlotOrder.rotate(oldSlots,incoming,delta);
+                ImageView outgoing = PinnedWheelSlotOrder.outgoing(pinnedWheelSlotViews, delta);
+                List<ImageView> nextSlots = PinnedWheelSlotOrder.rotate(pinnedWheelSlotViews, incoming, delta);
                 incoming.setFocusable(true);
                 incoming.setClickable(true);
                 pinnedWheelSlotViews.clear();
