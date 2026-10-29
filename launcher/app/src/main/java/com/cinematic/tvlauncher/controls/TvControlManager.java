@@ -246,9 +246,9 @@ public class TvControlManager {
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams attributes = window.getAttributes();
             float density = activity.getResources().getDisplayMetrics().density;
-            int maxWidth = (int) (560 * density);
+            int maxWidth = (int) (440 * density);
             int screenWidth = activity.getResources().getDisplayMetrics().widthPixels;
-            attributes.width = Math.min(maxWidth, (int) (screenWidth * 0.82f));
+            attributes.width = Math.min(maxWidth, (int) (screenWidth * 0.70f));
             attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
             attributes.dimAmount = 0.22f;
             window.setAttributes(attributes);
@@ -259,8 +259,8 @@ public class TvControlManager {
         if (window != null) {
             WindowManager.LayoutParams attributes = window.getAttributes();
             float density = activity.getResources().getDisplayMetrics().density;
-            attributes.width = Math.min((int) (560 * density),
-                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.82f));
+            attributes.width = Math.min((int) (440 * density),
+                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.70f));
             attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
             attributes.dimAmount = 0.22f;
             window.setAttributes(attributes);
@@ -278,13 +278,13 @@ public class TvControlManager {
         Dialog dialog = new Dialog(activity);
         android.widget.LinearLayout content = new android.widget.LinearLayout(activity);
         content.setOrientation(android.widget.LinearLayout.VERTICAL);
-        content.setPadding(dp(18), dp(14), dp(18), dp(14));
+        content.setPadding(dp(14), dp(10), dp(14), dp(10));
         content.setBackgroundResource(R.drawable.liquid_glass_dialog_bg);
 
         TextView title = new TextView(activity);
         title.setText("MIS FONDOS");
         title.setTextColor(android.graphics.Color.WHITE);
-        title.setTextSize(17);
+        title.setTextSize(16);
         title.setIncludeFontPadding(false);
         title.setPadding(dp(6), dp(4), dp(6), dp(8));
         title.setTypeface(android.graphics.Typeface.create(
@@ -296,7 +296,7 @@ public class TvControlManager {
         android.widget.LinearLayout list = new android.widget.LinearLayout(activity);
         list.setOrientation(android.widget.LinearLayout.VERTICAL);
         scroll.addView(list, new android.widget.ScrollView.LayoutParams(-1, -2));
-        content.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1, dp(210)));
+        content.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1, dp(176)));
 
         TextView close = new TextView(activity);
         close.setText("CERRAR");
@@ -307,8 +307,8 @@ public class TvControlManager {
         close.setClickable(true);
         close.setBackgroundResource(R.drawable.liquid_glass_action_bg);
         android.widget.LinearLayout.LayoutParams closeParams =
-                new android.widget.LinearLayout.LayoutParams(-1, dp(36));
-        closeParams.topMargin = dp(7);
+                new android.widget.LinearLayout.LayoutParams(-1, dp(32));
+        closeParams.topMargin = dp(5);
         content.addView(close, closeParams);
         close.setOnClickListener(v -> dialog.dismiss());
 
@@ -320,8 +320,8 @@ public class TvControlManager {
             window.setBackgroundDrawable(new ColorDrawable(android.graphics.Color.TRANSPARENT));
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams attributes = window.getAttributes();
-            attributes.width = Math.min(dp(480),
-                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.74f));
+            attributes.width = Math.min(dp(420),
+                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.68f));
             attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
             attributes.dimAmount = 0.22f;
             window.setAttributes(attributes);
@@ -330,8 +330,8 @@ public class TvControlManager {
         dialog.show();
         if (window != null) {
             WindowManager.LayoutParams attributes = window.getAttributes();
-            attributes.width = Math.min(dp(480),
-                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.74f));
+            attributes.width = Math.min(dp(420),
+                    (int) (activity.getResources().getDisplayMetrics().widthPixels * 0.68f));
             attributes.height = WindowManager.LayoutParams.WRAP_CONTENT;
             window.setAttributes(attributes);
         }
@@ -393,20 +393,20 @@ public class TvControlManager {
             previewImageParams.setMargins(dp(2), dp(2), dp(2), dp(2));
             previewFrame.addView(preview, previewImageParams);
             android.widget.LinearLayout.LayoutParams previewParams =
-                    new android.widget.LinearLayout.LayoutParams(dp(60), dp(36));
-            previewParams.setMargins(dp(2), 0, dp(6), 0);
+                    new android.widget.LinearLayout.LayoutParams(dp(52), dp(30));
+            previewParams.setMargins(dp(2), 0, dp(5), 0);
             row.addView(previewFrame, previewParams);
 
             TextView use = new TextView(activity);
             use.setText("USAR");
             use.setGravity(android.view.Gravity.CENTER);
             use.setTextColor(0xFFB8E8FF);
-            use.setTextSize(11);
+            use.setTextSize(10);
             use.setFocusable(true);
             use.setClickable(true);
             use.setBackgroundResource(R.drawable.liquid_glass_action_bg);
             android.widget.LinearLayout.LayoutParams useParams =
-                    new android.widget.LinearLayout.LayoutParams(dp(62), dp(40));
+                    new android.widget.LinearLayout.LayoutParams(dp(52), dp(34));
             useParams.setMargins(dp(4), 0, dp(4), 0);
             row.addView(use, useParams);
             use.setOnClickListener(v -> {
@@ -424,12 +424,12 @@ public class TvControlManager {
             remove.setText("BORRAR");
             remove.setGravity(android.view.Gravity.CENTER);
             remove.setTextColor(0xFFFFC7C7);
-            remove.setTextSize(10);
+            remove.setTextSize(9);
             remove.setFocusable(true);
             remove.setClickable(true);
             remove.setBackgroundResource(R.drawable.liquid_glass_action_bg);
             android.widget.LinearLayout.LayoutParams removeParams =
-                    new android.widget.LinearLayout.LayoutParams(dp(66), dp(40));
+                    new android.widget.LinearLayout.LayoutParams(dp(56), dp(34));
             row.addView(remove, removeParams);
             remove.setOnClickListener(v -> new AlertDialog.Builder(activity)
                     .setTitle("Eliminar este fondo")
@@ -446,7 +446,7 @@ public class TvControlManager {
                         }
                     }).show());
 
-            list.addView(row, new android.widget.LinearLayout.LayoutParams(-1, dp(44)));
+            list.addView(row, new android.widget.LinearLayout.LayoutParams(-1, dp(40)));
         }
     }
 
@@ -461,8 +461,8 @@ public class TvControlManager {
             BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
 
-            int targetWidth = Math.max(1, dp(60) * 2);
-            int targetHeight = Math.max(1, dp(36) * 2);
+            int targetWidth = Math.max(1, dp(52) * 2);
+            int targetHeight = Math.max(1, dp(30) * 2);
             int sampleSize = 1;
             while (bounds.outWidth / (sampleSize * 2) >= targetWidth
                     && bounds.outHeight / (sampleSize * 2) >= targetHeight) {
@@ -662,30 +662,30 @@ public class TvControlManager {
         Dialog dialog = new Dialog(activity);
         android.widget.LinearLayout panel = new android.widget.LinearLayout(activity);
         panel.setOrientation(android.widget.LinearLayout.VERTICAL);
-        int pad = dp(20);
+        int pad = dp(14);
         panel.setPadding(pad, pad, pad, pad);
         panel.setBackgroundResource(R.drawable.liquid_glass_dialog_bg);
         TextView title = new TextView(activity);
         title.setText("FUENTES DE ENTRADA");
         title.setTextColor(android.graphics.Color.WHITE);
-        title.setTextSize(20);
+        title.setTextSize(17);
         title.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
-        title.setPadding(dp(4), 0, dp(4), dp(12));
+        title.setPadding(dp(2), 0, dp(2), dp(8));
         panel.addView(title);
 
         for (InputOption source : options) {
             TextView option = new TextView(activity);
             option.setText(source.label);
             option.setTextColor(android.graphics.Color.WHITE);
-            option.setTextSize(16);
+            option.setTextSize(14);
             option.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            option.setPadding(dp(16), 0, dp(16), 0);
-            option.setMinHeight(dp(48));
+            option.setPadding(dp(12), 0, dp(12), 0);
+            option.setMinHeight(dp(38));
             option.setFocusable(true);
             option.setClickable(true);
             option.setBackgroundResource(R.drawable.liquid_glass_action_bg);
-            android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(-1, dp(48));
-            lp.bottomMargin = dp(7);
+            android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(-1, dp(38));
+            lp.bottomMargin = dp(4);
             panel.addView(option, lp);
             option.setOnClickListener(v -> {
                 dialog.dismiss();
@@ -696,13 +696,13 @@ public class TvControlManager {
         TextView close = new TextView(activity);
         close.setText("VOLVER");
         close.setTextColor(android.graphics.Color.WHITE);
-        close.setTextSize(14);
+        close.setTextSize(13);
         close.setGravity(android.view.Gravity.CENTER);
-        close.setMinHeight(dp(44));
+        close.setMinHeight(dp(34));
         close.setFocusable(true);
         close.setClickable(true);
         close.setBackgroundResource(R.drawable.liquid_glass_action_bg);
-        panel.addView(close, new android.widget.LinearLayout.LayoutParams(-1, dp(44)));
+        panel.addView(close, new android.widget.LinearLayout.LayoutParams(-1, dp(34)));
         close.setOnClickListener(v -> dialog.dismiss());
 
         dialog.setContentView(panel);
@@ -715,7 +715,7 @@ public class TvControlManager {
             window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             WindowManager.LayoutParams attrs = window.getAttributes();
             int screenWidth = activity.getResources().getDisplayMetrics().widthPixels;
-            attrs.width = Math.min(dp(440), (int)(screenWidth * 0.72f));
+            attrs.width = Math.min(dp(360), (int)(screenWidth * 0.66f));
             attrs.height = WindowManager.LayoutParams.WRAP_CONTENT;
             attrs.dimAmount = 0.18f;
             window.setAttributes(attrs);
