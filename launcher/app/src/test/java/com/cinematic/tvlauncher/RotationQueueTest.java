@@ -16,7 +16,8 @@ public class RotationQueueTest {
         testSingleItemQueue();
         testRandomRotationNoConsecutiveDuplicates();
         testFilterNonImageFiles();
-        System.out.println("  [PASS] RotationQueueTest: all 4 tests passed.");
+        testMarkDisplayedAndRemoveImage();
+        System.out.println("  [PASS] RotationQueueTest: all 5 tests passed.");
     }
 
     private static void testEmptyQueue() {
@@ -55,6 +56,27 @@ public class RotationQueueTest {
                 assert !current.equals(prev) : "Immediate consecutive duplicate detected: " + current.getName() + " on iteration " + i;
             }
             prev = current;
+        }
+    }
+
+    private static void testMarkDisplayedAndRemoveImage() throws IOException {
+        RotationQueue queue = new RotationQueue();
+        List<File> files = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            File file = File.createTempFile("managed_" + i, ".jpg");
+            file.deleteOnExit();
+            files.add(file);
+        }
+        queue.setImages(files);
+        queue.markDisplayed(files.get(0));
+        assert !queue.getNextRandomImage().equals(files.get(0))
+                : "The currently displayed wallpaper should not immediately repeat";
+
+        queue.removeImage(files.get(1));
+        assert queue.size() == 2 : "Removing a wallpaper should update the rotation queue";
+        for (int i = 0; i < 30; i++) {
+            assert !queue.getNextRandomImage().equals(files.get(1))
+                    : "Removed wallpaper must not be returned by rotation";
         }
     }
 
