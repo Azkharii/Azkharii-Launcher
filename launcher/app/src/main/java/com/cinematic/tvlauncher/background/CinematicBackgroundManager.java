@@ -59,7 +59,7 @@ public class CinematicBackgroundManager {
     private Future<?> pendingDecode;
     private final AtomicLong workGeneration = new AtomicLong();
     private boolean hasRealWallpaperLoaded = false;
-    private File currentWallpaperFile;
+    private volatile File currentWallpaperFile;
     private File wallpaperFileA;
     private File wallpaperFileB;
     private Runnable backgroundChangedListener;
@@ -488,8 +488,11 @@ public class CinematicBackgroundManager {
     }
 
     private void cacheWallpaperPreviewIfNeeded(File source, Bitmap bitmap) {
+        // A queued cache task may outlive the wallpaper that scheduled it. Avoid the CPU-heavy
+        // JPEG encode if a newer image is active or the launcher has already left foreground.
         if (source == null || !source.isFile() || bitmap == null || bitmap.hasAlpha()
-                || Thread.currentThread().isInterrupted() || destroyed) return;
+                || Thread.currentThread().isInterrupted() || destroyed || !isVisible
+                || !source.equals(currentWallpaperFile)) return;
         File previewFile = wallpaperPreviewCacheFile(
                 source, wallpaperTargetWidth(), wallpaperTargetHeight());
         if (previewFile == null || previewFile.isFile()) return;
@@ -507,7 +510,9 @@ public class CinematicBackgroundManager {
             Log.w(TAG, "Could not persist reduced wallpaper preview", e);
             return;
         }
-        if (temporaryFile.length() <= 0 || !temporaryFile.renameTo(previewFile)) {
+        if (!isVisible || destroyed || Thread.currentThread().isInterrupted()
+                || !source.equals(currentWallpaperFile)
+                || temporaryFile.length() <= 0 || !temporaryFile.renameTo(previewFile)) {
             temporaryFile.delete();
             return;
         }
