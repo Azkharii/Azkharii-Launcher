@@ -71,6 +71,11 @@ jobs:
           APP_VERSION_NAME: ${{ steps.debug_version.outputs.name }}
         run: bash gradlew :launcher:app:assembleDebug --stacktrace --no-daemon
 
+      # The debug APK is the downloadable CI artifact. This unsigned release build separately
+      # exercises R8 and resource shrinking before those settings can reach a signed OTA release.
+      - name: Build optimized release to validate R8
+        run: bash gradlew :launcher:app:assembleRelease --stacktrace --no-daemon
+
       - name: Inspect and Verify Generated APK
         shell: bash
         run: |
