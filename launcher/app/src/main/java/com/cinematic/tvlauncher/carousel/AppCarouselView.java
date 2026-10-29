@@ -10,6 +10,7 @@ import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.util.AttributeSet;
+import android.util.LruCache;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -71,6 +72,9 @@ public class AppCarouselView extends FrameLayout {
     private final Deque<Integer> pendingMoves = new ArrayDeque<>();
     private static final int MAX_PENDING_MOVES = 2;
 
+    // Reuse sampled artwork colors when the app library is reopened; the cap bounds memory.
+    private static final LruCache<String, CachedArtwork> APP_ARTWORK_CACHE = new LruCache<>(128);
+
     private long lastKeyTime = 0;
     private boolean centerLongPressHandled = false;
     private static final long MIN_REPEAT_INTERVAL_MS = 80; // ~12 moves/sec per Annex D.3
@@ -112,6 +116,11 @@ public class AppCarouselView extends FrameLayout {
         if (maxVisibleCardDistance == clamped) return;
         maxVisibleCardDistance = clamped;
         updateCardPositions(false);
+    }
+
+    /** Clear package artwork colors after Android reports app installation or update changes. */
+    public static void clearArtworkCaches() {
+        APP_ARTWORK_CACHE.evictAll();
     }
 
     public void setItems(List<AppItem> newItems) {
@@ -211,19 +220,27 @@ public class AppCarouselView extends FrameLayout {
             card.setBackgroundColor(Color.TRANSPARENT);
 
             Drawable artwork = item.getBanner() != null ? item.getBanner() : item.getIcon();
-            int[] palette = sampleColorPalette(artwork);
-            int sampledColor = averagePaletteColor(palette);
-            cardColors.add(sampledColor);
-            // The card keeps using its existing banner-derived palette. The dot samples
-            // the real app icon separately, without tinting or recoloring that icon.
-            Drawable appIcon = item.getIcon() != null ? item.getIcon() : artwork;
-            selectionAccentColors.add(IconAccentSampler.sample(appIcon));
-            cardGlows.add(new AdaptiveGlowDrawable(palette, density, 12f, false));
+            String packageName = item.getPackageName();
+            CachedArtwork cachedArtwork = packageName == null ? null : APP_ARTWORK_CACHE.get(packageName);
+            if (cachedArtwork == null) {
+                // Sample each app once per package version, not every time the library is reopened.
+                int[] palette = sampleColorPalette(artwork);
+                // The card keeps its banner-derived palette. The navigation dot uses the actual
+                // app icon accent, without tinting or recoloring the icon itself.
+                Drawable appIcon = item.getIcon() != null ? item.getIcon() : artwork;
+                cachedArtwork = new CachedArtwork(
+                        palette, averagePaletteColor(palette), IconAccentSampler.sample(appIcon));
+                if (packageName != null) APP_ARTWORK_CACHE.put(packageName, cachedArtwork);
+            }
+            cardColors.add(cachedArtwork.averageColor);
+            selectionAccentColors.add(cachedArtwork.iconAccent);
+            cardGlows.add(new AdaptiveGlowDrawable(
+                    cachedArtwork.perimeterColors, density, 12f, false));
 
             FrameLayout surface = new FrameLayout(context);
             LayoutParams surfaceLp = new LayoutParams(cardWidth, cardHeight, Gravity.CENTER);
             surface.setLayoutParams(surfaceLp);
-            surface.setBackground(createCardBackground(sampledColor, false));
+            surface.setBackground(createCardBackground(cachedArtwork.averageColor, false));
             // Do not attach/draw an idle adaptive edge before the carousel has focus.
             surface.setClipChildren(true);
             surface.setClipToPadding(true);
@@ -698,4 +715,16 @@ public class AppCarouselView extends FrameLayout {
 
         return super.onKeyDown(keyCode, event);
     }
+    private static final class CachedArtwork {
+        final int[] perimeterColors;
+        final int averageColor;
+        final int iconAccent;
+
+        CachedArtwork(int[] perimeterColors, int averageColor, int iconAccent) {
+            this.perimeterColors = perimeterColors;
+            this.averageColor = averageColor;
+            this.iconAccent = iconAccent;
+        }
+    }
+
 }

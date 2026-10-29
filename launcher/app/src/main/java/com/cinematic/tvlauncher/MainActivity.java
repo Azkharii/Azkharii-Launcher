@@ -138,7 +138,13 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     // Reuse geometry buffers: this method runs on every carousel animation frame.
     private final android.graphics.Rect focusVisibleRect = new android.graphics.Rect();
     private final int[] focusRootLocation = new int[2];
+    private static final int PINNED_WHEEL_VISIBLE_ITEMS = 5;
     private final List<AppItem> pinnedWheelItems = new java.util.ArrayList<>();
+    // Wheel navigation reuses these five-card transform buffers instead of allocating on each key.
+    private final float[][] pinnedWheelFromTransforms = new float[PINNED_WHEEL_VISIBLE_ITEMS][4];
+    private final float[][] pinnedWheelToTransforms = new float[PINNED_WHEEL_VISIBLE_ITEMS][4];
+    private final float[] pinnedWheelIncomingFromTransform = new float[4];
+    private final float[] pinnedWheelIncomingToTransform = new float[4];
     private final List<ImageView> pinnedWheelSlotViews = new ArrayList<>();
     // Cache per-package icon-derived colors for the navigation marker only.
     private final android.util.LruCache<String, Integer> iconAccentCache =
@@ -150,7 +156,6 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private boolean pinnedWheelAnimating = false;
     private long lastPinnedDotUpdateAtMs;
     private boolean rebuildingPinnedWheel = false;
-    private static final int PINNED_WHEEL_VISIBLE_ITEMS = 5;
     private boolean libraryVisible = false;
     private boolean watchNextPermissionRequestInFlight = false;
     private boolean optionsOpenedFromPinnedWheel = false;
@@ -389,8 +394,15 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         refreshPinnedAppsWheel();
     }
 
-    private void schedulePackageRefresh() {
+    private void invalidateAppCaches() {
         if (discoveryManager != null) discoveryManager.invalidateInstalledAppsCache();
+        AppCarouselView.clearArtworkCaches();
+        iconAccentCache.evictAll();
+        appFocusGlowAccentCache.evictAll();
+    }
+
+    private void schedulePackageRefresh() {
+        invalidateAppCaches();
         if (!activityResumed) return;
         lifecycleHandler.removeCallbacks(packageRefreshRunnable);
         lifecycleHandler.postDelayed(packageRefreshRunnable, 300L);
@@ -743,19 +755,26 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     }
 
     private float[] pinnedWheelTransform(float angle) {
+        float[] transform = new float[4];
+        fillPinnedWheelTransform(angle, transform);
+        return transform;
+    }
+
+    /** Fills a caller-owned transform so repeated wheel navigation does not allocate arrays. */
+    private void fillPinnedWheelTransform(float angle, float[] transform) {
+        if (transform == null || transform.length < 4) return;
         float iconSize = dp(48);
         float viewportHeight = pinnedAppsWheel != null && pinnedAppsWheel.getHeight() > 0
                 ? pinnedAppsWheel.getHeight() : dp(310);
-        // Tighten the arc slightly; the full-height radius left excessive gaps between pins.
+        // Keep the existing arc geometry and visual scale exactly the same.
         float radius = Math.max(dp(1), (viewportHeight - iconSize) / 2f) * 0.82f;
         float centerX = iconSize / 2f;
         float centerY = viewportHeight / 2f;
-        float x = centerX + radius * (float) Math.cos(angle) - iconSize / 2f;
-        float y = centerY + radius * (float) Math.sin(angle) - iconSize / 2f;
-        float scale = 0.82f + 0.18f * Math.max(0f, (float) Math.cos(angle));
-        float rotationY = Math.max(-18f, Math.min(18f,
+        transform[0] = centerX + radius * (float) Math.cos(angle) - iconSize / 2f;
+        transform[1] = centerY + radius * (float) Math.sin(angle) - iconSize / 2f;
+        transform[2] = 0.82f + 0.18f * Math.max(0f, (float) Math.cos(angle));
+        transform[3] = Math.max(-18f, Math.min(18f,
                 -angle * 18f / (float) (Math.PI / 2.0)));
-        return new float[]{x, y, scale, rotationY};
     }
 
     private void applyPinnedWheelTransform(View icon, float[] transform) {
@@ -810,17 +829,15 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         incoming.setClickable(false);
         pinnedAppsWheel.addView(incoming, new FrameLayout.LayoutParams(dp(48), dp(48)));
 
-        List<View> moving = new ArrayList<>(pinnedWheelSlotViews);
-        float[][] fromTransforms = new float[count][];
-        float[][] toTransforms = new float[count][];
         for (int i = 0; i < count; i++) {
-            fromTransforms[i] = pinnedWheelTransform(pinnedWheelAngle(i, count));
-            toTransforms[i] = pinnedWheelTransform(pinnedWheelAngle(i, count) - delta * step);
-            moving.get(i).setClickable(false);
+            fillPinnedWheelTransform(pinnedWheelAngle(i, count), pinnedWheelFromTransforms[i]);
+            fillPinnedWheelTransform(
+                    pinnedWheelAngle(i, count) - delta * step, pinnedWheelToTransforms[i]);
+            pinnedWheelSlotViews.get(i).setClickable(false);
         }
-        float[] incomingFrom = pinnedWheelTransform(incomingAngle);
-        float[] incomingTo = pinnedWheelTransform(targetAngle);
-        applyPinnedWheelTransform(incoming, incomingFrom);
+        fillPinnedWheelTransform(incomingAngle, pinnedWheelIncomingFromTransform);
+        fillPinnedWheelTransform(targetAngle, pinnedWheelIncomingToTransform);
+        applyPinnedWheelTransform(incoming, pinnedWheelIncomingFromTransform);
 
         // All attached wheel cards already own stable hardware layers; do not toggle them.
         pinnedWheelAnimating = true;
@@ -831,10 +848,12 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         animator.addUpdateListener(animation -> {
             float t = (float) animation.getAnimatedValue();
             // Geometry is computed once per keypress; frames perform interpolation only.
-            for (int i = 0; i < moving.size(); i++) {
-                applyInterpolatedPinnedWheelTransform(moving.get(i), fromTransforms[i], toTransforms[i], t);
+            for (int i = 0; i < pinnedWheelSlotViews.size(); i++) {
+                applyInterpolatedPinnedWheelTransform(pinnedWheelSlotViews.get(i),
+                        pinnedWheelFromTransforms[i], pinnedWheelToTransforms[i], t);
             }
-            applyInterpolatedPinnedWheelTransform(incoming, incomingFrom, incomingTo, t);
+            applyInterpolatedPinnedWheelTransform(incoming, pinnedWheelIncomingFromTransform,
+                    pinnedWheelIncomingToTransform, t);
             // Avoid global-visible-rectangle traversal on every animation frame.
             long now = android.os.SystemClock.uptimeMillis();
             if (now - lastPinnedDotUpdateAtMs >= 50L) {
@@ -847,9 +866,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         });
         animator.addListener(new AnimatorListenerAdapter() {
             @Override public void onAnimationEnd(Animator animation) {
-                List<ImageView> oldSlots = new ArrayList<>(pinnedWheelSlotViews);
-                ImageView outgoing = PinnedWheelSlotOrder.outgoing(oldSlots,delta);
-                List<ImageView> nextSlots = PinnedWheelSlotOrder.rotate(oldSlots,incoming,delta);
+                ImageView outgoing = PinnedWheelSlotOrder.outgoing(pinnedWheelSlotViews, delta);
+                List<ImageView> nextSlots = PinnedWheelSlotOrder.rotate(pinnedWheelSlotViews, incoming, delta);
                 incoming.setFocusable(true);
                 incoming.setClickable(true);
                 pinnedWheelSlotViews.clear();
@@ -1708,8 +1726,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         }
         // If this firmware does not expose LauncherApps callbacks, refresh metadata on resume
         // so installs/removals made while another app was foreground are still discovered.
-        if (!launcherAppsCallbackRegistered && discoveryManager != null) {
-            discoveryManager.invalidateInstalledAppsCache();
+        if (!launcherAppsCallbackRegistered) {
+            invalidateAppCaches();
         }
         loadApps();
         refreshContinueWatchingWheel();

@@ -309,3 +309,15 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - **Continue Watching navigation:** animation geometry buffers are reused, slot order rotates in place, and poster tasks are cancelled/removed from the queue when their card leaves the wheel. Animation timing and visual transforms are unchanged.
 - **Wallpaper changes:** the delayed foreground JPEG encoder was removed; valid preview-cache files from earlier runs are still read. Uncached files will be decoded from their original source on later rotations.
 - **Hosted validation:** pending for this branch. **Physical TV CPU/RAM comparison: NOT TESTED.** No percentage reduction is claimed without a matched on-device run.
+
+
+## Bounded artwork palette cache and pinned-wheel allocation pass — 2026-10-29
+
+- **App library:** added a bounded 128-entry per-package cache for the eight sampled edge colors, average banner color, and icon accent. This reduces repeat bitmap rasterization when a library view is rebuilt; full library views and all illumination remain enabled.
+- **Cache correctness:** invalidates the shared carousel palette cache and MainActivity icon-accent caches on package add/change/remove callbacks, and on resume where LauncherApps callbacks are not supported.
+- **Pinned wheel:** reuses transform buffers sized to the five visible cards, writes transform values in place, and removes the redundant old-slot list copy. Arc geometry, navigation order, focus behavior, glow and 280 ms animation are retained.
+- **Static source checks:** PASS for bounded cache declarations, package-change/resume invalidation paths, five-card buffer bounds, and unchanged transform formula.
+- **Automated validation:** PASS — GitHub Actions Build run #122 on source commit `1867e1ae8c1ac56920289f9234c210c853adc214`: repository integrity, all 8 JVM test suites, debug APK, optimized release/R8 build, APK inspection and artifact upload succeeded. A first run exposed a stale `sampledColor` reference; it was corrected before this passing run.
+- **Signing validation:** PASS — workflow run #76 built the signed APK and verified its signature.
+- **Debug artifact:** 2,998,786 bytes; SHA-256 `c25497969641d08c2f46adf0295b14948c404ab9cea369a43409a366c2f5ec64`.
+- **Physical TV validation:** pending. No FPS, CPU, or RAM improvement is claimed until the same navigation scenarios are measured after installing the built APK.
