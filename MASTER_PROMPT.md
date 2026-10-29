@@ -162,7 +162,7 @@ No clipping, label overlap, or off-screen cards for small (1–3 apps) and large
 - **Access Feasibility & Authorized Workflows:** Direct access to system screensaver albums by third-party apps is restricted; therefore, implement authorized photo selection, secure local image collection caching, or user-authorized picker workflows. Do not scrape private content or use unsupported backend methods.
 - **Performance & Decoding:** Decode and resize images appropriately for the television's display resolution (`ImageDecoder` / downsampling) to prevent out-of-memory errors. Preload the next photograph when practical and release unused image resources. Handle missing files, revoked permissions, or network failures safely by retaining the last valid background instead of displaying a black screen.
 
-**C.3 Background Motion (Optional / Subtle, must be disableable and intensity-configurable):** Defaults: very slow scale 1.00 → 1.06 over ~40 s ping-pong; horizontal pan/parallax ≤ 1% W; lightweight animators only (`ValueAnimator`/`ObjectAnimator` on a hardware layer or canvas matrix). Forbidden: continuous shaders, full-screen blur, particle systems, redraw loops without need.
+**C.3 Background motion (intentionally omitted):** Do not implement a continuous wallpaper zoom, pan, or parallax animation. The TV's resource budget is prioritized for input responsiveness. Preserve randomized wallpaper rotation and the existing crossfade; do not retain dormant motion settings or animation code.
 
 **C.4 Clock/date.** Update at minute boundaries only (and on `ACTION_TIME_TICK`/time-zone/locale change); stop updates when not visible. Optional local-only greeting.
 
