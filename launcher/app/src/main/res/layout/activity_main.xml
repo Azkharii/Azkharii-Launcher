@@ -154,9 +154,9 @@
 
             <FrameLayout
                 android:id="@+id/btn_inputs"
-                android:layout_width="56dp"
-                android:layout_height="38dp"
-                android:layout_marginEnd="6dp"
+                android:layout_width="48dp"
+                android:layout_height="34dp"
+                android:layout_marginEnd="4dp"
                 android:background="@drawable/control_button_bg"
                 android:focusable="true"
                 android:clickable="true"
@@ -237,9 +237,9 @@
             </FrameLayout>
             <FrameLayout
                 android:id="@+id/btn_photos"
-                android:layout_width="38dp"
-                android:layout_height="38dp"
-                android:layout_marginStart="6dp"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="4dp"
                 android:background="@drawable/control_button_bg"
                 android:focusable="true"
                 android:clickable="true"
