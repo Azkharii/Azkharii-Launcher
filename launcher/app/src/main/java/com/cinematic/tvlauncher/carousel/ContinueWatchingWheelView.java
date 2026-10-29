@@ -95,7 +95,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     private volatile Future<?> dataTask;
     private final AtomicInteger artworkGeneration = new AtomicInteger();
     // Track poster work by the visible item that owns it so off-wheel jobs can be cancelled.
-    private final Map<MediaItem, Set<Future<?>>> artworkTasks = new HashMap<>();
+    private final Map<FrameLayout, Set<Future<?>>> artworkTasks = new HashMap<>();
     private OnItemsChangedListener itemsChangedListener;
     private final List<FrameLayout> slotViews = new ArrayList<>();
 
@@ -283,7 +283,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         return true;
     }
 
-    private void loadPosterArtworkAsync(MediaItem item, ImageView poster) {
+    private void loadPosterArtworkAsync(MediaItem item, ImageView poster, FrameLayout owner) {
         if (item == null || hostPaused) return;
         poster.setTag(item);
         final int generation = artworkGeneration.get();
@@ -302,7 +302,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 applyPaletteToCard((View) poster.getParent(), item, cachedPalette);
             } else {
                 // A bitmap may outlive its small palette entry; recalculate off the UI thread.
-                submitArtworkTask(generation, item, () -> {
+                submitArtworkTask(generation, owner, () -> {
                     int[] palette = sampleArtworkPalette(cached);
                     if (Thread.currentThread().isInterrupted() || hostPaused
                             || generation != artworkGeneration.get()) return;
@@ -317,7 +317,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             return;
         }
 
-        submitArtworkTask(generation, item, () -> {
+        submitArtworkTask(generation, owner, () -> {
             Bitmap decoded = ARTWORK_CACHE.get(cacheKey);
             int[] palette = ARTWORK_PALETTE_CACHE.get(cacheKey);
             if (decoded == null) {
@@ -358,8 +358,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         });
     }
 
-    private void submitArtworkTask(int generation, MediaItem item, Runnable work) {
-        if (item == null || hostPaused || generation != artworkGeneration.get()) return;
+    private void submitArtworkTask(int generation, FrameLayout owner, Runnable work) {
+        if (owner == null || hostPaused || generation != artworkGeneration.get()) return;
         synchronized (artworkTasks) {
             artworkTasks.entrySet().removeIf(entry -> {
                 entry.getValue().removeIf(Future::isDone);
@@ -371,14 +371,14 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                         || Thread.currentThread().isInterrupted()) return;
                 work.run();
             });
-            artworkTasks.computeIfAbsent(item, ignored -> new HashSet<>()).add(task);
+            artworkTasks.computeIfAbsent(owner, ignored -> new HashSet<>()).add(task);
         }
     }
 
-    private void cancelArtworkTasks(MediaItem item) {
-        if (item == null) return;
+    private void cancelArtworkTasks(FrameLayout owner) {
+        if (owner == null) return;
         synchronized (artworkTasks) {
-            Set<Future<?>> tasks = artworkTasks.remove(item);
+            Set<Future<?>> tasks = artworkTasks.remove(owner);
             if (tasks == null) return;
             for (Future<?> task : tasks) {
                 task.cancel(true);
@@ -609,7 +609,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         });
 
         applySurfaceStyle(surface, item, glowState, false);
-        loadPosterArtworkAsync(item, poster);
+        loadPosterArtworkAsync(item, poster, outer);
         outer.setOnKeyListener((v, keyCode, event) -> {
             if (animating) return true;
             if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
@@ -877,8 +877,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 View center = getCenterChild();
                 if (center != null) center.requestFocus();
                 if (outgoing != null) {
-                    Object tag = outgoing.getTag();
-                    if (tag instanceof MediaItem) cancelArtworkTasks((MediaItem) tag);
+                    cancelArtworkTasks(outgoing);
                     removeView(outgoing);
                 }
                 for (FrameLayout card : slotViews) {
