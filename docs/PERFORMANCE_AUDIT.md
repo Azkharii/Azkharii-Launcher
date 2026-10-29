@@ -184,3 +184,30 @@ No UI component, navigation behavior, Watch Next feature, wallpaper crossfade, o
 
 - Hosted integrity checks, unit tests, and Android debug/release builds must pass before this change is build-validated.
 - Dynamic hardware-layer promotion trades a small layer-recreation cost on the first key press after idle for lower idle graphics-memory retention. Exact CPU/RAM impact still requires matched before/after measurements on the target TV using `dumpsys meminfo`, `top`, and frame-jank samples. No device-side percentage improvement is claimed before that comparison.
+
+
+## Corrective regression pass — 2026-10-29 (new PR)
+
+### Reverted change with a plausible navigation cost
+
+- The prior change turned pinned-wheel and Continue Watching cards from persistent hardware layers into layers promoted during navigation and demoted after 1.2 seconds. That required Android/HWUI to recreate layer resources when the next remote move came after the timeout. The new branch restores the prior stable-card-layer behavior for these small, bounded wheel surfaces; the main app carousel retains its existing visible-range animation layer policy.
+- This is a source-level correction supported by the code comparison, not proof that it alone caused every CPU peak. The user's reported up-to-147% navigation sample remains the before/after metric to reproduce.
+
+### Previous idle optimizations reconciled with the current source
+
+- Background rotation interval: 30 → 60 seconds when multiple wallpapers are present. No timer is scheduled when the queue is empty or has only one image. Manual background selection remains available.
+- Full-screen crossfade: 180 → 160 ms; the transition animation remains enabled.
+- Wallpaper lifecycle: cancel rotation, pending decode and delayed preview-cache work before yielding from Activity.
+- Adaptive wallpaper palette sampling reads the same 32×18 pixels in one bulk transfer instead of 576 individual pixel calls; color selection and HSV interpolation are unchanged.
+- Focus changes now clear the previous recent-app/library selected state before early-returning on the floating marker, avoiding a stale active glow.
+
+### Explicitly unchanged
+
+- The RAM/CPU HUD remains enabled as before and samples every 3 seconds.
+- Card dimensions, transforms, focus navigation, selected-icon marker color, multicolor borders/glow, wallpaper appearance, card animations, Continue Watching data, and app features are preserved.
+- Dialog sizes and other styling were not bulk-rewritten from the older helper script because its expected source fragments did not match this branch; that script was not run blindly.
+
+### Validation boundaries
+
+- Hosted CI must run repository integrity, unit tests, debug APK build, and optimized release build for the new head.
+- Physical TV measurements and visual review are still needed. Do not claim quantified CPU/RAM improvement from a code diff alone.

@@ -162,11 +162,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private LauncherApps launcherApps;
     private boolean launcherAppsCallbackRegistered;
     private boolean activityResumed;
-    private static final long PINNED_WHEEL_LAYER_IDLE_RELEASE_MS = 1200L;
     private final Handler lifecycleHandler = new Handler(Looper.getMainLooper());
-    private final Runnable releasePinnedWheelLayersRunnable = () -> {
-        if (!pinnedWheelAnimating) releasePinnedWheelHardwareLayers();
-    };
 
     private final Runnable packageRefreshRunnable = () -> {
         if (!activityResumed || isFinishing() || isDestroyed() || discoveryManager == null) return;
@@ -260,13 +256,14 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
                     new FrameLayout.LayoutParams(dp(10), dp(10), Gravity.TOP | Gravity.LEFT));
 
             rootContainer.getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus, newFocus) -> {
-                if (newFocus == focusPositionDot) return;
                 boolean recentAppsFocused = newFocus != null && carouselView != null
                         && (newFocus == carouselView || isDescendantOf(newFocus, carouselView));
                 if (carouselView != null) carouselView.setSelectionActive(recentAppsFocused);
                 boolean libraryFocused = newFocus != null && libraryCarousel != null
                         && (newFocus == libraryCarousel || isDescendantOf(newFocus, libraryCarousel));
                 if (libraryCarousel != null) libraryCarousel.setSelectionActive(libraryFocused);
+                // Ignore marker placement only after clearing the previous carousel's active glow.
+                if (newFocus == focusPositionDot) return;
                 if (newFocus == null) {
                     focusPositionDot.setVisibility(View.GONE);
                     return;
@@ -677,6 +674,9 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         iconView.setPadding(padding, padding, padding, padding);
         iconView.setBackgroundResource(R.drawable.pinned_app_icon_bg);
         if (item.getIcon() != null) iconView.setImageDrawable(item.getIcon());
+        // Keep the five compact wheel layers warm across D-pad moves. Recreating them after
+        // an idle timeout caused unnecessary GPU-layer uploads on the next keypress.
+        iconView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
         iconView.setOnFocusChangeListener((v, hasFocus) -> {
             if (hasFocus) {
                 applyAppFocusGlow(iconView, (AppItem) iconView.getTag());
@@ -820,14 +820,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         float[] incomingTo = pinnedWheelTransform(targetAngle);
         applyPinnedWheelTransform(incoming, incomingFrom);
 
-        // Allocate GPU render layers only for active wheel navigation.
-        lifecycleHandler.removeCallbacks(releasePinnedWheelLayersRunnable);
-        for (View card : moving) {
-            if (card.getLayerType() != View.LAYER_TYPE_HARDWARE) {
-                card.setLayerType(View.LAYER_TYPE_HARDWARE, null);
-            }
-        }
-        incoming.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+        // All attached wheel cards already own stable hardware layers; do not toggle them.
         pinnedWheelAnimating = true;
         lastPinnedDotUpdateAtMs = 0L;
         ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
@@ -873,24 +866,9 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
                 }
                 pinnedWheelSelectedIndex=newSelection;
                 pinnedWheelAnimating=false;
-                lifecycleHandler.removeCallbacks(releasePinnedWheelLayersRunnable);
-                lifecycleHandler.postDelayed(releasePinnedWheelLayersRunnable,
-                        PINNED_WHEEL_LAYER_IDLE_RELEASE_MS);
             }
         });
         animator.start();
-    }
-
-    /** Release temporary wheel layers after navigation settles. */
-    private void releasePinnedWheelHardwareLayers() {
-        FrameLayout wheel = pinnedAppsWheel;
-        if (wheel == null) return;
-        for (int i = 0; i < wheel.getChildCount(); i++) {
-            View child = wheel.getChildAt(i);
-            if (child.getLayerType() != View.LAYER_TYPE_NONE) {
-                child.setLayerType(View.LAYER_TYPE_NONE, null);
-            }
-        }
     }
 
     private int getAppIconAccent(AppItem item) {
@@ -1043,10 +1021,10 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             double[] valueSum = new double[binCount];
             double[] weightSum = new double[binCount];
             float[] hsv = new float[3];
+            int[] pixels = new int[sampleWidth * sampleHeight];
+            sample.getPixels(pixels, 0, sampleWidth, 0, 0, sampleWidth, sampleHeight);
 
-            for (int y = 0; y < sampleHeight; y++) {
-                for (int x = 0; x < sampleWidth; x++) {
-                    int pixel = sample.getPixel(x, y);
+            for (int pixel : pixels) {
                     if (Color.alpha(pixel) < 96) continue;
                     Color.colorToHSV(pixel, hsv);
                     // Ignore near-neutral highlights, crushed shadows and clipped whites.
@@ -1060,7 +1038,6 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
                     saturationSum[bin] += hsv[1] * weight;
                     valueSum[bin] += hsv[2] * weight;
                     weightSum[bin] += weight;
-                }
             }
 
             int dominantBin = 0;
@@ -1823,18 +1800,17 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
 
     @Override
     protected void onPause() {
+        if (backgroundManager != null) backgroundManager.onPause();
         super.onPause();
         lifecycleHandler.removeCallbacks(persistRecentSelectionRunnable);
         persistRecentSelectionRunnable.run();
         activityResumed = false;
         unregisterTimeTickReceiver();
-        lifecycleHandler.removeCallbacks(releasePinnedWheelLayersRunnable);
-        releasePinnedWheelHardwareLayers();
         if (performanceHud != null) performanceHud.stop();
         lifecycleHandler.removeCallbacks(packageRefreshRunnable);
         if (controlManager != null) controlManager.onPause();
         if (updateManager != null) updateManager.onPause();
-        // Stop wallpaper, weather, and adaptive-HUD work while another app is foreground.
+        // Stop weather and adaptive-HUD work while another app is foreground.
         if (weatherWidgetManager != null) weatherWidgetManager.onPause();
         if (continueWatchingWheel != null) continueWatchingWheel.pauseBackgroundWork();
         hudColorGeneration++;
@@ -1842,16 +1818,11 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             hudColorAnimator.cancel();
             hudColorAnimator = null;
         }
-        if (backgroundManager != null) {
-            backgroundManager.onPause();
-        }
     }
 
     @Override
     protected void onDestroy() {
         activityResumed = false;
-        lifecycleHandler.removeCallbacks(releasePinnedWheelLayersRunnable);
-        releasePinnedWheelHardwareLayers();
         if (performanceHud != null) performanceHud.close();
         unregisterLauncherAppsCallback();
         if (updateManager != null) updateManager.close();
