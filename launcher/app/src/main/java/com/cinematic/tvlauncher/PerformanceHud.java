@@ -1,7 +1,6 @@
 package com.cinematic.tvlauncher;
 
 import android.app.Activity;
-import android.content.Context;
 import android.graphics.Color;
 import android.graphics.Debug;
 import android.graphics.Typeface;
@@ -15,7 +14,6 @@ import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
-import java.util.Locale;
 
 /**
  * Tiny foreground-only diagnostic HUD. Samples process CPU and PSS every three seconds;
