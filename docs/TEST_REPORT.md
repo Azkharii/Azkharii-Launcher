@@ -306,6 +306,6 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 
 ## Focused performance pass — 2026-10-29
 
-- **Continue Watching navigation:** animation geometry buffers are reused and slot order rotates in place to reduce per-key allocations. Animation timing and visual transforms are unchanged.
+- **Continue Watching navigation:** animation geometry buffers are reused, slot order rotates in place, and poster tasks are cancelled/removed from the queue when their card leaves the wheel. Animation timing and visual transforms are unchanged.
 - **Wallpaper changes:** the delayed foreground JPEG encoder was removed; valid preview-cache files from earlier runs are still read. Uncached files will be decoded from their original source on later rotations.
 - **Hosted validation:** pending for this branch. **Physical TV CPU/RAM comparison: NOT TESTED.** No percentage reduction is claimed without a matched on-device run.
