@@ -134,3 +134,19 @@ No UI component, navigation behavior, Watch Next feature, wallpaper crossfade, o
 - Added a compact diagnostic HUD showing this process's PSS memory and CPU percentage, sampled every three seconds only while the launcher is foreground. It stops on pause. This is process-only telemetry, not total TV resource usage; sampling adds a small, non-zero diagnostic cost.
 - Dependency review of `launcher/app/build.gradle` found only AppCompat, AndroidX Core, Android TV Provider, and JUnit; no advertising or analytics SDK dependency is declared by this launcher. Google TV system components are outside this APK and must be identified from a read-only package inventory before any device-level disablement. No system packages are changed by this source branch.
 - **Validation pending:** hosted tests/build and on-TV checks. Verify cold-start first-wallpaper latency, poster arrival under normal network conditions, both remote settings key codes, HUD overhead/legibility, and CPU/RAM before deciding whether to keep or tune the diagnostic HUD.
+
+ 
+## Follow-up — pinned-wheel frame cost, wallpaper thumbnails, compact controls and R8 (2026-10-29)
+
+### Source-level findings and changes
+- The pinned-app wheel performed five card transforms plus one incoming-card transform on every animation frame without temporary hardware layers. The matching Continue Watching wheel already used temporary hardware layers for moving cards. The pinned wheel now uses hardware layers only for the short slide, then releases them.
+- The pinned-wheel focus marker previously ran global-visible-rectangle geometry on every animator frame. Marker geometry updates are now bounded to one every 50 ms during a slide; selection and icon-color resolution remain intact. The pinned focus-glow accent is cached by package so recycled wheel slots do not repeatedly rasterize the same icon into a bitmap.
+- The recent-app carousel previously wrote the selected package/index to SharedPreferences on each selection callback. Writes are debounced for 300 ms and flushed on pause; activating an app persists its identity immediately.
+- “Mis fondos” no longer shows the potentially stale “Fondo mostrado” label or generated file names. Every managed background gets a small sampled thumbnail, decoded after bounds inspection and reduced to RGB_565; the full-resolution wallpaper path remains on its background worker. The dialog title and inner padding were adjusted to keep text away from the border.
+- Inputs is reduced to 56×38 dp and Photos to 38×38 dp. Both labels are constrained to their own bounds with centered gravity and ellipsizing.
+- Release builds now enable R8 and unused-resource shrinking. The blanket keep-all rule was removed; the XML click handler has one narrow keep rule. CI now assembles an unsigned optimized release variant as well as the debug artifact to exercise the shrinker.
+
+### Validation status
+- The current branch's GitHub Actions run must pass integrity checks, unit tests, debug APK build and R8 release build before the source change is considered build-validated.
+- A same-scene before/after CPU and RAM measurement on the Hisense U7K/U75K is still required. The user's reported 80–100% CPU on Continue Watching versus much higher peaks on pinned/recent navigation remains the baseline; no post-change improvement is claimed yet.
+- Visual checks on the physical TV are pending, especially marker tracking during the pinned-wheel slide, the imported-background thumbnails, and the resized top controls.
