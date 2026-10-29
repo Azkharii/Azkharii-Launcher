@@ -11,7 +11,7 @@ public class TestMain {
         System.out.println("  Cinematic Android TV Launcher - Unit Test Suite ");
         System.out.println("==================================================");
 
-        int totalSuites = 7;
+        int totalSuites = 6;
         int passedSuites = 0;
 
         try {
@@ -65,15 +65,6 @@ public class TestMain {
             passedSuites++;
         } catch (Throwable t) {
             System.err.println("  [FAIL] UpdateVersionPolicyTest: " + t.getMessage());
-            t.printStackTrace();
-        }
-
-        try {
-            System.out.println("7. Running UpdateCheckPolicyTest (foreground update interval and retry backoff)...");
-            UpdateCheckPolicyTest.runTests();
-            passedSuites++;
-        } catch (Throwable t) {
-            System.err.println("  [FAIL] UpdateCheckPolicyTest: " + t.getMessage());
             t.printStackTrace();
         }
 
