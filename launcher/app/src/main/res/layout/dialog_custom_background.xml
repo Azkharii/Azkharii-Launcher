@@ -39,11 +39,26 @@
         android:background="@drawable/liquid_glass_action_bg"
         android:focusable="true"
         android:clickable="true"
-        android:nextFocusDown="@id/btn_cancel_backgrounds"
+        android:nextFocusDown="@id/btn_manage_backgrounds"
         android:text="@string/custom_background_choose"
         android:textColor="@color/text_primary"
         android:textStyle="bold"
         android:textSize="16sp" />
+
+    <TextView
+        android:id="@+id/btn_manage_backgrounds"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:background="@drawable/liquid_glass_action_bg"
+        android:focusable="true"
+        android:clickable="true"
+        android:nextFocusUp="@id/btn_choose_backgrounds"
+        android:nextFocusDown="@id/btn_cancel_backgrounds"
+        android:text="@string/custom_background_manage"
+        android:textColor="@color/text_primary"
+        android:textSize="15sp" />
 
     <TextView
         android:id="@+id/btn_cancel_backgrounds"
@@ -54,7 +69,7 @@
         android:background="@drawable/liquid_glass_action_bg"
         android:focusable="true"
         android:clickable="true"
-        android:nextFocusUp="@id/btn_choose_backgrounds"
+        android:nextFocusUp="@id/btn_manage_backgrounds"
         android:text="@string/custom_background_cancel"
         android:textColor="@color/text_secondary"
         android:textSize="15sp" />
