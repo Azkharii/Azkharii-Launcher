@@ -70,6 +70,7 @@ public final class WeatherWidgetManager {
     private volatile boolean closed;
     private volatile boolean paused = true;
     private volatile boolean weatherRequestInProgress;
+    private volatile long weatherGeneration;
     private volatile HttpURLConnection activeConnection;
     private volatile Future<?> weatherTask;
     // Defer access to constructor-initialized fields until the callback is actually run.
@@ -145,6 +146,7 @@ public final class WeatherWidgetManager {
     /** Stop location and network work as soon as another app covers the launcher. */
     public void onPause() {
         paused = true;
+        ++weatherGeneration;
         mainHandler.removeCallbacks(adviceRotationRunnable);
         cancelPendingLocationRequest();
         Future<?> task = weatherTask;
@@ -323,25 +325,26 @@ public final class WeatherWidgetManager {
             return;
         }
         weatherRequestInProgress = true;
+        final long requestGeneration = ++weatherGeneration;
         try {
             weatherTask = executor.submit(() -> {
                 HttpURLConnection connection = null;
                 try {
-                    if (closed || paused || Thread.currentThread().isInterrupted()
-                            || !hasValidatedInternet()) return;
+                    if (closed || paused || requestGeneration != weatherGeneration
+                            || Thread.currentThread().isInterrupted() || !hasValidatedInternet()) return;
                     // Reverse geocoding may also use network; reuse the locality for nearby coordinates.
                     String city = cachedLocationName(location);
                     if (TextUtils.isEmpty(city)) city = resolveLocationName(location);
-                    if (closed || paused || Thread.currentThread().isInterrupted()
-                            || !hasValidatedInternet()) return;
+                    if (closed || paused || requestGeneration != weatherGeneration
+                            || Thread.currentThread().isInterrupted() || !hasValidatedInternet()) return;
                     String query = String.format(Locale.US,
                             "https://api.open-meteo.com/v1/forecast?latitude=%.5f&longitude=%.5f"
                                     + "&current=temperature_2m,apparent_temperature,weather_code&temperature_unit=celsius&timezone=auto",
                             location.getLatitude(), location.getLongitude());
                     connection = (HttpURLConnection) new URL(query).openConnection();
                     activeConnection = connection;
-                    if (closed || paused || Thread.currentThread().isInterrupted()
-                            || !hasValidatedInternet()) return;
+                    if (closed || paused || requestGeneration != weatherGeneration
+                            || Thread.currentThread().isInterrupted() || !hasValidatedInternet()) return;
                     connection.setRequestMethod("GET");
                     connection.setConnectTimeout(5000);
                     connection.setReadTimeout(5000);
@@ -355,14 +358,16 @@ public final class WeatherWidgetManager {
                         String line;
                         while ((line = reader.readLine()) != null) body.append(line);
                     }
-                    if (closed || paused || Thread.currentThread().isInterrupted()) return;
+                    if (closed || paused || requestGeneration != weatherGeneration
+                            || Thread.currentThread().isInterrupted()) return;
                     JSONObject current = new JSONObject(body.toString()).getJSONObject("current");
                     int temperature = (int) Math.round(current.getDouble("temperature_2m"));
                     int feelsLike = (int) Math.round(current.optDouble("apparent_temperature", temperature));
                     int weatherCode = current.optInt("weather_code", -1);
                     String summary = temperature + "°C";
                     String place = TextUtils.isEmpty(city) ? "Ubicación automática" : city;
-                    if (closed || paused || Thread.currentThread().isInterrupted()) return;
+                    if (closed || paused || requestGeneration != weatherGeneration
+                            || Thread.currentThread().isInterrupted()) return;
                     preferences.edit().putString(KEY_SUMMARY, summary)
                             .putString(KEY_LOCATION, place)
                             .putInt(KEY_WEATHER_CODE, weatherCode)
@@ -370,20 +375,25 @@ public final class WeatherWidgetManager {
                             .putFloat(KEY_LATITUDE, (float) location.getLatitude())
                             .putFloat(KEY_LONGITUDE, (float) location.getLongitude())
                             .putLong(KEY_UPDATED, System.currentTimeMillis()).apply();
-                    mainHandler.post(() -> { if (!closed && !paused) render(summary, place); });
+                    mainHandler.post(() -> {
+                        if (!closed && !paused && requestGeneration == weatherGeneration) {
+                            render(summary, place);
+                        }
+                    });
                 } catch (Exception e) {
-                    if (!closed && !paused && !Thread.currentThread().isInterrupted()) {
+                    if (!closed && !paused && requestGeneration == weatherGeneration
+                            && !Thread.currentThread().isInterrupted()) {
                         Log.w(TAG, "Unable to update weather", e);
                         mainHandler.post(() -> { if (!closed && !paused) showCachedOrUnavailable(); });
                     }
                 } finally {
                     if (connection != null) connection.disconnect();
                     if (activeConnection == connection) activeConnection = null;
-                    weatherRequestInProgress = false;
+                    if (requestGeneration == weatherGeneration) weatherRequestInProgress = false;
                 }
             });
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
-            weatherRequestInProgress = false;
+            if (requestGeneration == weatherGeneration) weatherRequestInProgress = false;
         }
     }
 
