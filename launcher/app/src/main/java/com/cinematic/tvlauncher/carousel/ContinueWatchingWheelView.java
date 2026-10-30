@@ -944,9 +944,9 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 incoming.setFocusable(true);
                 incoming.setClickable(true);
 
-                // Focus the new center before detaching only the edge card.
+                // Do not request window focus when cancel() settles this animation during onPause().
                 View center = getCenterChild();
-                if (center != null) center.requestFocus();
+                if (!hostPaused && center != null) center.requestFocus();
                 if (outgoing != null) {
                     cancelArtworkTasks(outgoing);
                     removeView(outgoing);
