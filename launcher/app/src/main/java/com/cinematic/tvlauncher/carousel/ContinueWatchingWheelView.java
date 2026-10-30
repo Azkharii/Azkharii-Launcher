@@ -202,7 +202,12 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         watchNextRepository.unregisterObserver();
         Future<?> query = dataTask;
         dataTask = null;
-        if (query != null) query.cancel(true);
+        if (query != null) {
+            query.cancel(true);
+            if (query instanceof Runnable && DATA_EXECUTOR instanceof ThreadPoolExecutor) {
+                ((ThreadPoolExecutor) DATA_EXECUTOR).remove((Runnable) query);
+            }
+        }
         cancelAllArtworkTasks();
     }
 
