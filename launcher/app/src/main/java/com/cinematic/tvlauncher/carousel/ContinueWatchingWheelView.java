@@ -23,6 +23,7 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import java.io.ByteArrayOutputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -33,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import com.cinematic.tvlauncher.WatchNextEntryPolicy;
 import com.cinematic.tvlauncher.WatchNextRepository;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -98,6 +100,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     private final AtomicInteger artworkGeneration = new AtomicInteger();
     // Track poster work by the visible item that owns it so off-wheel jobs can be cancelled.
     private final Map<FrameLayout, Set<Future<?>>> artworkTasks = new HashMap<>();
+    private final Set<InputStream> activeArtworkStreams = ConcurrentHashMap.newKeySet();
     private OnItemsChangedListener itemsChangedListener;
     private final List<FrameLayout> slotViews = new ArrayList<>();
 
@@ -436,6 +439,11 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             }
             artworkTasks.clear();
         }
+        // Closing the streams also releases sockets/providers that may not unblock on interrupt alone.
+        for (InputStream stream : activeArtworkStreams) {
+            try { stream.close(); } catch (IOException ignored) {}
+        }
+        activeArtworkStreams.clear();
     }
 
     /** Applies poster colors on the UI thread after sampling has completed on the worker. */
@@ -459,13 +467,21 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         // Read the source once. Reopening remote/provider URIs for bounds and pixels could make
         // each poster wait through two network timeouts before it appeared on the TV.
         byte[] sourceBytes;
-        try (InputStream input = openArtworkStream(uri)) {
-            if (input == null) return null;
+        InputStream opened = openArtworkStream(uri);
+        if (opened == null) return null;
+        activeArtworkStreams.add(opened);
+        try (InputStream input = opened) {
+            if (hostPaused || Thread.currentThread().isInterrupted()) {
+                throw new java.io.InterruptedIOException("Watch Next artwork cancelled");
+            }
             ByteArrayOutputStream output = new ByteArrayOutputStream(32 * 1024);
             byte[] buffer = new byte[16 * 1024];
             int totalBytes = 0;
             int count;
             while ((count = input.read(buffer)) != -1) {
+                if (hostPaused || Thread.currentThread().isInterrupted()) {
+                    throw new java.io.InterruptedIOException("Watch Next artwork cancelled");
+                }
                 totalBytes += count;
                 if (totalBytes > MAX_ARTWORK_SOURCE_BYTES) {
                     throw new IOException("Watch Next artwork exceeds the 6 MiB source limit");
@@ -473,6 +489,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 output.write(buffer, 0, count);
             }
             sourceBytes = output.toByteArray();
+        } finally {
+            activeArtworkStreams.remove(opened);
         }
         if (sourceBytes.length == 0) return null;
 
@@ -502,7 +520,16 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             connection.setReadTimeout(2500);
             connection.setUseCaches(true);
             connection.setRequestProperty("Accept", "image/*,*/*;q=0.5");
-            return connection.getInputStream();
+            InputStream networkStream = connection.getInputStream();
+            if (connection instanceof java.net.HttpURLConnection) {
+                return new FilterInputStream(networkStream) {
+                    @Override public void close() throws IOException {
+                        try { super.close(); }
+                        finally { ((java.net.HttpURLConnection) connection).disconnect(); }
+                    }
+                };
+            }
+            return networkStream;
         }
         if ("content".equalsIgnoreCase(scheme)
                 || "android.resource".equalsIgnoreCase(scheme)
