@@ -25,7 +25,10 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -46,6 +49,9 @@ public final class UpdateManager {
     private final ExecutorService executor =
             new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
     private final Handler handler=new Handler(Looper.getMainLooper());
+    private final Set<HttpURLConnection> activeConnections = ConcurrentHashMap.newKeySet();
+    private volatile Future<?> activeTask;
+    private volatile File activePartialFile;
     private volatile boolean closed,resumed,checking;
 
     public UpdateManager(Activity activity){
@@ -60,8 +66,34 @@ public final class UpdateManager {
         tryInstallPendingUpdate();
     }
 
-    public void onPause(){resumed=false;}
-    public void close(){closed=true;resumed=false;handler.removeCallbacksAndMessages(null);executor.shutdownNow();}
+    public void onPause(){
+        resumed=false;
+        Future<?> task=activeTask;
+        activeTask=null;
+        if(task!=null){
+            task.cancel(true);
+            if(task instanceof Runnable && executor instanceof ThreadPoolExecutor){
+                ((ThreadPoolExecutor)executor).remove((Runnable)task);
+            }
+        }
+        checking=false;
+        for(HttpURLConnection connection:activeConnections){
+            try{connection.disconnect();}catch(RuntimeException ignored){}
+        }
+        activeConnections.clear();
+        File partial=activePartialFile;
+        activePartialFile=null;
+        if(partial!=null&&partial.exists())partial.delete();
+    }
+    public void close(){
+        closed=true;
+        onPause();
+        executor.shutdownNow();
+    }
+
+    private boolean shouldStop(){
+        return closed || !resumed || Thread.currentThread().isInterrupted();
+    }
 
     public void checkNow(){
         if(closed||!resumed||activity.isFinishing()||activity.isDestroyed())return;
@@ -72,7 +104,7 @@ public final class UpdateManager {
         checking=true;
         Toast.makeText(activity,"Comprobando actualizaciones…",Toast.LENGTH_SHORT).show();
         try{
-            executor.execute(this::checkLatestRelease);
+            activeTask=executor.submit(this::checkLatestRelease);
         }catch(java.util.concurrent.RejectedExecutionException e){
             checking=false;
             recordCheckFailure("CHECK_NOT_SCHEDULED");
@@ -94,7 +126,10 @@ public final class UpdateManager {
     private void checkLatestRelease(){
         HttpURLConnection connection=null;
         try{
+            if(shouldStop())return;
             connection=(HttpURLConnection)new URL(RELEASE_API).openConnection();
+            activeConnections.add(connection);
+            if(shouldStop())return;
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(6000);
             connection.setReadTimeout(8000);
@@ -189,11 +224,16 @@ public final class UpdateManager {
             prefs.edit().putString(LAST_STATUS,"UPDATE_AVAILABLE").apply();
             handler.post(()->showUpdateDialog(info));
         }catch(Exception e){
-            recordCheckFailure("CHECK_FAILED");
-            Log.w(TAG,"Manual update check failed; the installed launcher remains usable.",e);
-            showManualStatus("Falló la comprobación. Revisa la conexión y vuelve a intentarlo.");
+            if(!shouldStop()){
+                recordCheckFailure("CHECK_FAILED");
+                Log.w(TAG,"Manual update check failed; the installed launcher remains usable.",e);
+                showManualStatus("Falló la comprobación. Revisa la conexión y vuelve a intentarlo.");
+            }
         }finally{
-            if(connection!=null)connection.disconnect();
+            if(connection!=null){
+                activeConnections.remove(connection);
+                connection.disconnect();
+            }
             checking=false;
         }
     }
@@ -202,7 +242,10 @@ public final class UpdateManager {
         if(checksumUrl==null||checksumUrl.trim().isEmpty())return null;
         HttpURLConnection connection=null;
         try{
+            if(shouldStop())return null;
             connection=(HttpURLConnection)new URL(checksumUrl).openConnection();
+            activeConnections.add(connection);
+            if(shouldStop())return null;
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(4000);
             connection.setReadTimeout(4000);
@@ -218,7 +261,10 @@ public final class UpdateManager {
             Log.w(TAG,"Could not read release SHA-256 sidecar.",e);
             return null;
         }finally{
-            if(connection!=null)connection.disconnect();
+            if(connection!=null){
+                activeConnections.remove(connection);
+                connection.disconnect();
+            }
         }
     }
 
@@ -257,12 +303,15 @@ public final class UpdateManager {
     }
 
     private void download(UpdateInfo info){
-        if(closed)return;
+        if(closed||!resumed)return;
         Toast.makeText(activity,"Descargando actualización…",Toast.LENGTH_SHORT).show();
-        try{executor.execute(()->{
+        try{activeTask=executor.submit(()->{
             File partial=null;HttpURLConnection connection=null;
             try{
+                if(shouldStop())return;
                 connection=(HttpURLConnection)new URL(info.url).openConnection();
+                activeConnections.add(connection);
+                if(shouldStop())return;
                 connection.setRequestMethod("GET");connection.setConnectTimeout(15000);connection.setReadTimeout(30000);
                 connection.setInstanceFollowRedirects(true);
                 connection.setRequestProperty("User-Agent","CinematicTVLauncher/"+BuildConfig.VERSION_NAME);
@@ -274,10 +323,13 @@ public final class UpdateManager {
                 File directory=new File(activity.getCacheDir(),"updates");
                 if(!directory.exists()&&!directory.mkdirs())throw new IllegalStateException("Cannot create update cache");
                 partial=new File(directory,APK_NAME+".partial");
+                activePartialFile=partial;
+                if(shouldStop())throw new java.io.InterruptedIOException("Launcher left foreground");
                 try(InputStream input=new BufferedInputStream(connection.getInputStream());
                     FileOutputStream output=new FileOutputStream(partial)){
                     byte[] buffer=new byte[16384];long total=0;int count;
                     while((count=input.read(buffer))!=-1){
+                        if(shouldStop())throw new java.io.InterruptedIOException("Launcher left foreground");
                         total+=count;if(total>MAX_APK||total>info.size)throw new IllegalStateException("APK larger than expected");
                         output.write(buffer,0,count);
                     }
@@ -293,14 +345,31 @@ public final class UpdateManager {
                 File validated=new File(directory,APK_NAME);
                 if(validated.exists()&&!validated.delete())throw new IllegalStateException("Cannot replace cached APK");
                 if(!partial.renameTo(validated))throw new IllegalStateException("Cannot finalize validated APK");
-                partial=null;String path=validated.getAbsolutePath();
-                handler.post(()->installOrRequestPermission(path));
+                partial=null;
+                activePartialFile=null;
+                String path=validated.getAbsolutePath();
+                handler.post(()->{
+                    if(closed)return;
+                    if(!resumed){
+                        prefs.edit().putString(PENDING_INSTALL,path).apply();
+                        return;
+                    }
+                    installOrRequestPermission(path);
+                });
             }catch(Exception e){
                 if(partial!=null&&partial.exists())partial.delete();
-                Log.w(TAG,"APK download/validation failed; installer was not opened.",e);
-                handler.post(()->{if(!closed&&!activity.isFinishing())Toast.makeText(activity,
-                    "No se pudo verificar la actualización; no se instaló nada.",Toast.LENGTH_LONG).show();});
-            }finally{if(connection!=null)connection.disconnect();}
+                if(activePartialFile==partial)activePartialFile=null;
+                if(!shouldStop()){
+                    Log.w(TAG,"APK download/validation failed; installer was not opened.",e);
+                    handler.post(()->{if(!closed&&resumed&&!activity.isFinishing())Toast.makeText(activity,
+                        "No se pudo verificar la actualización; no se instaló nada.",Toast.LENGTH_LONG).show();});
+                }
+            }finally{
+                if(connection!=null){
+                    activeConnections.remove(connection);
+                    connection.disconnect();
+                }
+            }
         });}catch(java.util.concurrent.RejectedExecutionException ignored){}
     }
 
@@ -313,6 +382,11 @@ public final class UpdateManager {
         prefs.edit().remove(PENDING_INSTALL).apply();launchInstaller(apk);return true;
     }
     private void installOrRequestPermission(String path){
+        if(closed)return;
+        if(!resumed){
+            prefs.edit().putString(PENDING_INSTALL,path).apply();
+            return;
+        }
         File apk=new File(path);
         if(!apk.isFile()||closed||activity.isFinishing())return;
         if(Build.VERSION.SDK_INT>=26&&!activity.getPackageManager().canRequestPackageInstalls()){
