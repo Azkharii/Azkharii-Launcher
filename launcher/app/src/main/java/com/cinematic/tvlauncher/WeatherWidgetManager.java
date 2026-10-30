@@ -72,14 +72,8 @@ public final class WeatherWidgetManager {
     private volatile boolean weatherRequestInProgress;
     private volatile HttpURLConnection activeConnection;
     private volatile Future<?> weatherTask;
-    private final Runnable adviceRotationRunnable = () -> {
-        if (closed || paused || label == null) return;
-        adviceRotationIndex++;
-        String summary = preferences.getString(KEY_SUMMARY, null);
-        String location = preferences.getString(KEY_LOCATION, null);
-        if (summary != null && location != null) render(summary, location);
-        scheduleAdviceRotation();
-    };
+    // Defer access to constructor-initialized fields until the callback is actually run.
+    private final Runnable adviceRotationRunnable = this::rotateAdvice;
 
     public WeatherWidgetManager(Activity activity, TextView label) {
         this.activity = activity;
@@ -155,7 +149,12 @@ public final class WeatherWidgetManager {
         cancelPendingLocationRequest();
         Future<?> task = weatherTask;
         weatherTask = null;
-        if (task != null) task.cancel(true);
+        if (task != null) {
+            task.cancel(true);
+            if (task instanceof Runnable && executor instanceof ThreadPoolExecutor) {
+                ((ThreadPoolExecutor) executor).remove((Runnable) task);
+            }
+        }
         weatherRequestInProgress = false;
         HttpURLConnection connection = activeConnection;
         if (connection != null) connection.disconnect();
@@ -471,6 +470,15 @@ public final class WeatherWidgetManager {
         if (value == null) return 20;
         try { return Integer.parseInt(value.replace("°C", "").trim()); }
         catch (NumberFormatException ignored) { return 20; }
+    }
+
+    private void rotateAdvice() {
+        if (closed || paused || label == null) return;
+        adviceRotationIndex++;
+        String summary = preferences.getString(KEY_SUMMARY, null);
+        String location = preferences.getString(KEY_LOCATION, null);
+        if (summary != null && location != null) render(summary, location);
+        scheduleAdviceRotation();
     }
 
     private void scheduleAdviceRotation() {
