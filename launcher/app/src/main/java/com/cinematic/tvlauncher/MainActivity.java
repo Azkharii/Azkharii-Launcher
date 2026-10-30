@@ -925,7 +925,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     }
 
     private void updateFocusPositionDot(View anchor, boolean placeOnLeftEdge) {
-        if (focusPositionDot == null || rootContainer == null || anchor == null) return;
+        if (focusDotTransitionInProgress || focusPositionDot == null
+                || rootContainer == null || anchor == null) return;
 
         View target = anchor;
         boolean fixedCarouselSlot = false;
