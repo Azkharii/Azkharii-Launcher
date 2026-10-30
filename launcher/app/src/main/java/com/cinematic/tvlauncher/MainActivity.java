@@ -216,7 +216,6 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         launcherConfig = LauncherConfig.loadFromResources(this);
         discoveryManager = new AppDiscoveryManager(this);
         updateManager = new UpdateManager(this);
-        registerLauncherAppsCallback();
 
         initViews();
         setupClockReceiver();
@@ -1748,6 +1747,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     protected void onResume() {
         super.onResume();
         activityResumed = true;
+        registerLauncherAppsCallback();
         registerTimeTickReceiver();
         updateClockAndDate();
         if (performanceHud != null) {
@@ -1888,6 +1888,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         lifecycleHandler.removeCallbacks(persistRecentSelectionRunnable);
         persistRecentSelectionRunnable.run();
         activityResumed = false;
+        unregisterLauncherAppsCallback();
         unregisterTimeTickReceiver();
         if (performanceHud != null) performanceHud.stop();
         lifecycleHandler.removeCallbacks(packageRefreshRunnable);
