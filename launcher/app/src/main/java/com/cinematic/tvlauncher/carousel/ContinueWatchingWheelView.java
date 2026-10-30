@@ -287,7 +287,6 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         });
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
             if (dataQueryCancellation == cancellationSignal) dataQueryCancellation = null;
-        }
             // The shared query executor may be shutting down with the process.
         }
     }
