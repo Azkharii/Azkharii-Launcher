@@ -15,6 +15,8 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.content.SharedPreferences;
 import android.os.Bundle;
@@ -158,6 +160,9 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private long lastPinnedDotUpdateAtMs;
     private boolean rebuildingPinnedWheel = false;
     private boolean libraryVisible = false;
+    // Keep the root-level navigation marker still while the two library panels move.
+    private boolean focusDotTransitionInProgress;
+    private AnimatorSet libraryTransitionAnimator;
     private boolean watchNextPermissionRequestInFlight = false;
     private boolean optionsOpenedFromPinnedWheel = false;
     private int optionsPinnedIndex = -1;
@@ -273,6 +278,8 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
                 if (libraryCarousel != null) libraryCarousel.setSelectionActive(libraryFocused);
                 // Ignore marker placement only after clearing the previous carousel's active glow.
                 if (newFocus == focusPositionDot) return;
+                // The marker is outside safeContainer; defer geometry until both panels settle.
+                if (focusDotTransitionInProgress) return;
                 if (newFocus == null) {
                     focusPositionDot.setVisibility(View.GONE);
                     return;
@@ -1651,9 +1658,42 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         return height > 0 ? height : getResources().getDisplayMetrics().heightPixels;
     }
 
+    private void cancelLibraryTransition() {
+        AnimatorSet running = libraryTransitionAnimator;
+        libraryTransitionAnimator = null;
+        if (running != null) running.cancel();
+    }
+
+    private void finishLibraryTransition(Animator animation, boolean showing) {
+        if (libraryTransitionAnimator != animation) return;
+        if (showing) {
+            safeContainer.setTranslationY(-getTransitionHeight());
+            libraryOverlay.setTranslationY(0);
+            libraryCarousel.requestFocus();
+        } else {
+            safeContainer.setTranslationY(0);
+            libraryOverlay.setTranslationY(0);
+            libraryOverlay.setVisibility(View.GONE);
+            carouselView.requestFocus();
+        }
+        libraryTransitionAnimator = null;
+        // Recompute only after both translations and focus have reached their final state.
+        rootContainer.post(() -> {
+            focusDotTransitionInProgress = false;
+            if (showing && libraryVisible) {
+                updateFocusPositionDot(libraryCarousel.getSelectedCardView());
+            } else if (!showing && !libraryVisible) {
+                updateFocusPositionDot(carouselView.getSelectedCardView());
+            }
+        });
+        if (!showing && performanceHud != null && activityResumed) performanceHud.start();
+    }
+
     private void showAppLibrary() {
         if (libraryVisible || libraryOverlay == null || libraryCarousel == null) return;
         libraryVisible = true;
+        focusDotTransitionInProgress = true;
+        cancelLibraryTransition();
         // The performance HUD measures only the actual home screen, not the app library.
         if (performanceHud != null) performanceHud.stop();
 
@@ -1662,58 +1702,45 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         librarySelectedLabel.setText(apps.isEmpty() ? getString(R.string.no_apps_found) : apps.get(0).getLabel());
 
         int height = getTransitionHeight();
-        libraryOverlay.animate().cancel();
-        safeContainer.animate().cancel();
         libraryOverlay.setVisibility(View.VISIBLE);
         libraryOverlay.setTranslationY(height);
-        safeContainer.animate()
-                .translationY(-height)
-                .setDuration(280)
-                .setInterpolator(new DecelerateInterpolator())
-                .start();
-        libraryOverlay.animate()
-                .translationY(0)
-                .setDuration(280)
-                .setInterpolator(new DecelerateInterpolator())
-                .setListener(new AnimatorListenerAdapter() {
-                    @Override
-                    public void onAnimationEnd(Animator animation) {
-                        libraryCarousel.requestFocus();
-                        libraryCarousel.post(() -> updateFocusPositionDot(libraryCarousel.getSelectedCardView()));
-                        libraryOverlay.animate().setListener(null);
-                    }
-                })
-                .start();
+        safeContainer.setTranslationY(0);
+        AnimatorSet transition = new AnimatorSet();
+        libraryTransitionAnimator = transition;
+        transition.playTogether(
+                ObjectAnimator.ofFloat(safeContainer, View.TRANSLATION_Y, -height),
+                ObjectAnimator.ofFloat(libraryOverlay, View.TRANSLATION_Y, 0f));
+        transition.setDuration(280);
+        transition.setInterpolator(new DecelerateInterpolator());
+        transition.addListener(new AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(Animator animation) {
+                finishLibraryTransition(animation, true);
+            }
+        });
+        transition.start();
         libraryCarousel.requestFocus();
     }
 
     private void hideAppLibrary() {
-        if (!libraryVisible || libraryOverlay == null) return;
+        if (!libraryVisible || libraryOverlay == null || carouselView == null) return;
         libraryVisible = false;
+        focusDotTransitionInProgress = true;
+        cancelLibraryTransition();
 
         int height = getTransitionHeight();
-        libraryOverlay.animate().cancel();
-        safeContainer.animate().cancel();
-        safeContainer.animate()
-                .translationY(0)
-                .setDuration(160)
-                .setInterpolator(new DecelerateInterpolator())
-                .start();
-        libraryOverlay.animate()
-                .translationY(height)
-                .setDuration(160)
-                .setInterpolator(new DecelerateInterpolator())
-                .setListener(new AnimatorListenerAdapter() {
-                    @Override
-                    public void onAnimationEnd(Animator animation) {
-                        libraryOverlay.setVisibility(View.GONE);
-                        libraryOverlay.setTranslationY(0);
-                        libraryOverlay.animate().setListener(null);
-                        carouselView.requestFocus();
-                        if (performanceHud != null && activityResumed) performanceHud.start();
-                    }
-                })
-                .start();
+        AnimatorSet transition = new AnimatorSet();
+        libraryTransitionAnimator = transition;
+        transition.playTogether(
+                ObjectAnimator.ofFloat(safeContainer, View.TRANSLATION_Y, 0f),
+                ObjectAnimator.ofFloat(libraryOverlay, View.TRANSLATION_Y, height));
+        transition.setDuration(160);
+        transition.setInterpolator(new DecelerateInterpolator());
+        transition.addListener(new AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(Animator animation) {
+                finishLibraryTransition(animation, false);
+            }
+        });
+        transition.start();
     }
 
     @Override
