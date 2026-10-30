@@ -5,12 +5,13 @@ final class WeatherAdvicePolicy {
     private WeatherAdvicePolicy() {}
 
     static String[] phrasesFor(int temperatureC, int feelsLikeC, int weatherCode) {
-        int perceived = feelsLikeC;
-        if (perceived >= 42) return new String[] {"Llamen a Dios", "Toma agua", "Busca sombra"};
-        if (perceived >= 38) return new String[] {"Calor intenso", "Enciende el ventilador", "Hidrátate"};
-        if (perceived >= 32) return new String[] {"Toma agua", "Usa ropa ligera", "Busca sombra"};
-        if (perceived <= 8) return new String[] {"Abrígate bien", "Evita el frío", "Bebida caliente"};
-        if (perceived <= 15) return new String[] {"Lleva chamarra", "Abrígate", "Tarde fresca"};
+        int perceivedHeat = Math.max(temperatureC, feelsLikeC);
+        int perceivedCold = Math.min(temperatureC, feelsLikeC);
+        if (perceivedHeat >= 42) return new String[] {"Llamen a Dios", "Toma agua", "Busca sombra"};
+        if (perceivedHeat >= 38) return new String[] {"Calor intenso", "Enciende el ventilador", "Hidrátate"};
+        if (perceivedHeat >= 32) return new String[] {"Toma agua", "Usa ropa ligera", "Busca sombra"};
+        if (perceivedCold <= 8) return new String[] {"Abrígate bien", "Evita el frío", "Bebida caliente"};
+        if (perceivedCold <= 15) return new String[] {"Lleva chamarra", "Abrígate", "Tarde fresca"};
 
         if (weatherCode == 95 || weatherCode == 96 || weatherCode == 99) {
             return new String[] {"Resguárdate", "Evita zonas abiertas", "Tormenta cercana"};
