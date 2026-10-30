@@ -77,6 +77,7 @@ public class TvControlManager {
     private volatile boolean importsChangedWhilePaused;
     private android.widget.ScrollView activeBackgroundScroll;
     private android.widget.LinearLayout activeBackgroundList;
+    private volatile InputStream activeImportInput;
 
     private final Activity activity;
     private final View btnInputs;
@@ -193,6 +194,11 @@ public class TvControlManager {
         ++backgroundImportGeneration;
         cancelTrackedTasks(backgroundThumbnailTasks, BACKGROUND_THUMBNAIL_EXECUTOR);
         cancelTrackedTasks(backgroundImportTasks, BACKGROUND_IMPORT_EXECUTOR);
+        InputStream importInput = activeImportInput;
+        activeImportInput = null;
+        if (importInput != null) {
+            try { importInput.close(); } catch (Exception ignored) {}
+        }
         pendingBackgroundThumbnailKeys.clear();
         networkHandler.removeCallbacks(wifiRefresh);
         if (!networkCallbackRegistered || connectivityManager == null) return;
@@ -768,28 +774,36 @@ public class TvControlManager {
 
         File target = new File(directory, "custom_background_" + stamp + "_" + index
                 + "_" + readableName + "." + extension);
-        try (InputStream input = activity.getContentResolver().openInputStream(uri)) {
-            if (Thread.currentThread().isInterrupted()) {
-                throw new java.io.InterruptedIOException("Background import cancelled");
-            }
-            if (input == null) return false;
-            try (OutputStream output = new FileOutputStream(target)) {
-                byte[] buffer = new byte[16 * 1024];
-                int read;
-                while ((read = input.read(buffer)) != -1) {
-                    if (Thread.currentThread().isInterrupted()) {
-                        throw new java.io.InterruptedIOException("Background import cancelled");
-                    }
-                    output.write(buffer, 0, read);
+        InputStream opened = null;
+        try {
+            if (Thread.currentThread().isInterrupted()) return false;
+            opened = activity.getContentResolver().openInputStream(uri);
+            activeImportInput = opened;
+            try (InputStream input = opened) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new java.io.InterruptedIOException("Background import cancelled");
                 }
+                if (input == null) return false;
+                try (OutputStream output = new FileOutputStream(target)) {
+                    byte[] buffer = new byte[16 * 1024];
+                    int read;
+                    while ((read = input.read(buffer)) != -1) {
+                        if (Thread.currentThread().isInterrupted()) {
+                            throw new java.io.InterruptedIOException("Background import cancelled");
+                        }
+                        output.write(buffer, 0, read);
+                    }
+                }
+                return target.isFile() && target.length() > 0L;
             }
-            return target.isFile() && target.length() > 0L;
         } catch (Exception e) {
             if (!Thread.currentThread().isInterrupted()) {
                 Log.w(TAG, "Unable to import selected background image", e);
             }
             if (target.exists()) target.delete();
             return false;
+        } finally {
+            if (activeImportInput == opened) activeImportInput = null;
         }
     }
 
