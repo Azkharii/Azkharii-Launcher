@@ -338,3 +338,12 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - Added short Spanish advice that rotates every 9 seconds while the launcher is foregrounded. Advice considers apparent temperature and condition: hydration/shade/fan for heat, jacket for cold, umbrella for rain, shelter for thunderstorms, and sunscreen for sunny weather. “Llamen a Dios” is reserved for perceived temperatures of 42°C or higher.
 - Added pure JVM policy tests for temperature thresholds, condition categories, and phrase rotation. The timer is cancelled when the launcher pauses.
 - Automated build/test and physical TV layout validation: pending this PR and device verification. No APK installation or TV setting changes performed.
+
+
+## Navigation marker alignment when leaving the app library — 2026-10-30
+
+- Root cause: the navigation marker is attached to the root container, while the home content (safeContainer) and the library overlay animate independently. Focus callbacks could therefore measure a card while its parent was still moving, placing the marker at an intermediate Y coordinate.
+- Replaced the two independent view-property animations with one AnimatorSet so both panels share a single transition timeline.
+- Suppressed marker geometry updates during the transition, including direct carousel callbacks, then recompute the marker once both views have reached their final translations and focus has returned to the correct carousel.
+- Existing transition durations are preserved (280ms opening, 160ms closing); no navigation color or selected-card behavior is intentionally changed.
+- Automated Android build and physical remote-control verification: pending CI and testing on the Hisense TV. No TV settings or installed apps changed.
