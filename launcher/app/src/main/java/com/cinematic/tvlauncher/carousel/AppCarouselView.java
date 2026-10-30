@@ -141,6 +141,15 @@ public class AppCarouselView extends FrameLayout {
         return selectedIndex;
     }
 
+    /** Finish any in-flight D-pad slide at the already-selected card when the host pauses. */
+    public void cancelPendingAnimation() {
+        pendingMoves.clear();
+        ValueAnimator running = positionAnimator;
+        positionAnimator = null;
+        if (running != null) running.cancel();
+        updateCardPositions(false);
+    }
+
     /** Returns the actual focused card so companion UI can track its position. */
     public View getSelectedCardView() {
         if (selectedIndex >= 0 && selectedIndex < cardViews.size()) {
