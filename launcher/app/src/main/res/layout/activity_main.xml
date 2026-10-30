@@ -56,6 +56,22 @@
             android:orientation="vertical">
 
             <TextView
+                android:id="@+id/tv_greeting"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:includeFontPadding="false"
+                android:textColor="#A8E8FF"
+                android:textSize="11sp"
+                android:fontFamily="sans-serif-medium"
+                android:textStyle="bold"
+                android:letterSpacing="0.045"
+                android:shadowColor="#8000BFFF"
+                android:shadowDx="0"
+                android:shadowDy="0"
+                android:shadowRadius="3"
+                android:text="Buenos días" />
+
+            <TextView
                 android:id="@+id/tv_clock"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -86,28 +102,28 @@
                 android:text="Lunes, 26 de octubre" />
         </LinearLayout>
 
-        <!-- Compact weather beside the clock; never reflows the clock/date column. -->
+        <!-- Compact text-only weather beside the clock; the temperature and place remain. -->
         <TextView
             android:id="@+id/tv_weather"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_toEndOf="@id/clock_container"
             android:layout_alignParentTop="true"
-            android:layout_marginStart="14dp"
-            android:layout_marginTop="4dp"
-            android:maxWidth="205dp"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:paddingTop="7dp"
-            android:paddingBottom="7dp"
+            android:layout_marginStart="12dp"
+            android:layout_marginTop="5dp"
+            android:maxWidth="190dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
             android:background="@drawable/weather_hud_bg"
             android:gravity="start|center_vertical"
             android:text="Clima · activar ubicación"
             android:textColor="#B8F6FF"
-            android:textSize="11sp"
+            android:textSize="10sp"
             android:fontFamily="sans-serif-condensed"
             android:letterSpacing="0.025"
-            android:lineSpacingExtra="2dp"
+            android:lineSpacingExtra="1dp"
             android:shadowColor="#A020DFFF"
             android:shadowDx="0"
             android:shadowDy="0"
