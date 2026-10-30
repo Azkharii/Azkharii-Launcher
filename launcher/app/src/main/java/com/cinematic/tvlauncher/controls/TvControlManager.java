@@ -49,9 +49,10 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -61,14 +62,21 @@ import java.util.concurrent.TimeUnit;
  */
 public class TvControlManager {
     private static final String TAG = "TvControlManager";
-    private static final ExecutorService BACKGROUND_IMPORT_EXECUTOR =
+    private static final ThreadPoolExecutor BACKGROUND_IMPORT_EXECUTOR =
             new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
     // Thumbnail work is low-priority and bounded; the photo library may contain hundreds of files.
-    private static final ExecutorService BACKGROUND_THUMBNAIL_EXECUTOR =
+    private static final ThreadPoolExecutor BACKGROUND_THUMBNAIL_EXECUTOR =
             new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(8));
     private final Set<String> pendingBackgroundThumbnailKeys = ConcurrentHashMap.newKeySet();
     private final Set<String> failedBackgroundThumbnailKeys = ConcurrentHashMap.newKeySet();
+    private final Set<Future<?>> backgroundThumbnailTasks = ConcurrentHashMap.newKeySet();
+    private final Set<Future<?>> backgroundImportTasks = ConcurrentHashMap.newKeySet();
     private volatile long backgroundThumbnailGeneration;
+    private volatile long backgroundImportGeneration;
+    private volatile boolean managerPaused = true;
+    private volatile boolean importsChangedWhilePaused;
+    private android.widget.ScrollView activeBackgroundScroll;
+    private android.widget.LinearLayout activeBackgroundList;
 
     private final Activity activity;
     private final View btnInputs;
@@ -148,8 +156,21 @@ public class TvControlManager {
         }
     }
 
-    /** Register connectivity events only while the launcher is visible. */
+    /** Register connectivity and resume visible-only photo work while the launcher is foreground. */
     public void onResume() {
+        managerPaused = false;
+        if (importsChangedWhilePaused) {
+            importsChangedWhilePaused = false;
+            if (backgroundManager != null) backgroundManager.loadLocalBackgrounds();
+        }
+        if (activeBackgroundScroll != null && activeBackgroundList != null) {
+            final long generation = ++backgroundThumbnailGeneration;
+            activeBackgroundScroll.setOnScrollChangeListener((View view, int scrollX, int scrollY,
+                    int oldScrollX, int oldScrollY) ->
+                    loadVisibleBackgroundThumbnails(activeBackgroundScroll, activeBackgroundList, generation));
+            activeBackgroundScroll.post(() ->
+                    loadVisibleBackgroundThumbnails(activeBackgroundScroll, activeBackgroundList, generation));
+        }
         if (connectivityManager == null) {
             connectivityManager = (ConnectivityManager)
                     activity.getSystemService(Context.CONNECTIVITY_SERVICE);
@@ -165,8 +186,14 @@ public class TvControlManager {
         updateWifiIndicator();
     }
 
-    /** Release the callback when another app covers the launcher. */
+    /** Cancel owned worker tasks and release system callbacks when another app covers the launcher. */
     public void onPause() {
+        managerPaused = true;
+        ++backgroundThumbnailGeneration;
+        ++backgroundImportGeneration;
+        cancelTrackedTasks(backgroundThumbnailTasks, BACKGROUND_THUMBNAIL_EXECUTOR);
+        cancelTrackedTasks(backgroundImportTasks, BACKGROUND_IMPORT_EXECUTOR);
+        pendingBackgroundThumbnailKeys.clear();
         networkHandler.removeCallbacks(wifiRefresh);
         if (!networkCallbackRegistered || connectivityManager == null) return;
         try {
@@ -178,7 +205,16 @@ public class TvControlManager {
         }
     }
 
+    private void cancelTrackedTasks(Set<Future<?>> tasks, ThreadPoolExecutor executor) {
+        for (Future<?> task : tasks) {
+            task.cancel(true);
+            if (task instanceof Runnable) executor.remove((Runnable) task);
+        }
+        tasks.clear();
+    }
+
     private void scheduleWifiIndicatorRefresh() {
+        if (managerPaused) return;
         networkHandler.removeCallbacks(wifiRefresh);
         networkHandler.post(wifiRefresh);
     }
@@ -312,6 +348,8 @@ public class TvControlManager {
                 loadVisibleBackgroundThumbnails(scroll, list, thumbnailGeneration));
         scroll.addView(list, new android.widget.ScrollView.LayoutParams(-1, -2));
         content.addView(scroll, new android.widget.LinearLayout.LayoutParams(-1, dp(128)));
+        activeBackgroundScroll = scroll;
+        activeBackgroundList = list;
 
         TextView close = new TextView(activity);
         close.setText("CERRAR");
@@ -333,10 +371,13 @@ public class TvControlManager {
         dialog.setOnDismissListener(ignored -> {
             ++backgroundThumbnailGeneration;
             scroll.setOnScrollChangeListener(null);
+            cancelTrackedTasks(backgroundThumbnailTasks, BACKGROUND_THUMBNAIL_EXECUTOR);
             pendingBackgroundThumbnailKeys.clear();
             failedBackgroundThumbnailKeys.clear();
-            // Discard queued work for the closed dialog; an active decode will exit on generation mismatch.
-            ((ThreadPoolExecutor) BACKGROUND_THUMBNAIL_EXECUTOR).getQueue().clear();
+            if (activeBackgroundScroll == scroll) {
+                activeBackgroundScroll = null;
+                activeBackgroundList = null;
+            }
             clearBackgroundThumbnailViews(list);
         });
         Window window = dialog.getWindow();
@@ -477,7 +518,7 @@ public class TvControlManager {
     /** Schedules thumbnails only for visible rows plus one row of prefetch. */
     private void loadVisibleBackgroundThumbnails(
             android.widget.ScrollView scroll, android.widget.LinearLayout list, long generation) {
-        if (generation != backgroundThumbnailGeneration || scroll.getHeight() <= 0) return;
+        if (managerPaused || generation != backgroundThumbnailGeneration || scroll.getHeight() <= 0) return;
         int viewportTop = Math.max(0, scroll.getScrollY() - dp(40));
         int viewportBottom = scroll.getScrollY() + scroll.getHeight() + dp(40);
         for (int i = 0; i < list.getChildCount(); i++) {
@@ -499,7 +540,8 @@ public class TvControlManager {
             if (!pendingBackgroundThumbnailKeys.add(requestKey)) continue;
             File sourceFile = new File(sourcePath);
             try {
-                BACKGROUND_THUMBNAIL_EXECUTOR.execute(() -> {
+                backgroundThumbnailTasks.removeIf(Future::isDone);
+                FutureTask<Void> thumbnailTask = new FutureTask<>(() -> {
                     Bitmap bitmap = null;
                     boolean deliveredToUi = false;
                     try {
@@ -540,7 +582,9 @@ public class TvControlManager {
                             }
                         }
                     }
-                });
+                }, null);
+                backgroundThumbnailTasks.add(thumbnailTask);
+                BACKGROUND_THUMBNAIL_EXECUTOR.execute(thumbnailTask);
             } catch (java.util.concurrent.RejectedExecutionException ignored) {
                 pendingBackgroundThumbnailKeys.remove(requestKey);
             }
@@ -639,22 +683,37 @@ public class TvControlManager {
             }
         }
 
+        final long importGeneration = ++backgroundImportGeneration;
         try {
-            BACKGROUND_IMPORT_EXECUTOR.execute(() -> {
+            FutureTask<Void> importTask = new FutureTask<>(() -> {
                 File directory = new File(activity.getFilesDir(), "CinematicBackgrounds");
                 if (!directory.exists() && !directory.mkdirs()) {
-                    networkHandler.post(() -> Toast.makeText(activity,
-                            "No se pudo preparar el almacenamiento privado de fondos.",
-                            Toast.LENGTH_LONG).show());
+                    networkHandler.post(() -> {
+                        if (!managerPaused && importGeneration == backgroundImportGeneration) {
+                            Toast.makeText(activity,
+                                    "No se pudo preparar el almacenamiento privado de fondos.",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
                     return;
                 }
 
                 int imported = 0;
                 for (int i = 0; i < selected.size(); i++) {
+                    if (managerPaused || importGeneration != backgroundImportGeneration
+                            || Thread.currentThread().isInterrupted()) break;
                     if (copyImage(selected.get(i), directory, i)) imported++;
                 }
                 final int importedCount = imported;
+                if (managerPaused || importGeneration != backgroundImportGeneration) {
+                    if (importedCount > 0) importsChangedWhilePaused = true;
+                    return;
+                }
                 networkHandler.post(() -> {
+                    if (managerPaused || importGeneration != backgroundImportGeneration) {
+                        if (importedCount > 0) importsChangedWhilePaused = true;
+                        return;
+                    }
                     if (importedCount > 0) {
                         if (backgroundManager != null) backgroundManager.loadLocalBackgrounds();
                         Toast.makeText(activity,
@@ -666,7 +725,10 @@ public class TvControlManager {
                                 Toast.LENGTH_LONG).show();
                     }
                 });
-            });
+            }, null);
+            backgroundImportTasks.removeIf(Future::isDone);
+            backgroundImportTasks.add(importTask);
+            BACKGROUND_IMPORT_EXECUTOR.execute(importTask);
         } catch (java.util.concurrent.RejectedExecutionException e) {
             Toast.makeText(activity, "No se pudo iniciar la importación de fondos.", Toast.LENGTH_LONG).show();
         }
@@ -707,15 +769,25 @@ public class TvControlManager {
         File target = new File(directory, "custom_background_" + stamp + "_" + index
                 + "_" + readableName + "." + extension);
         try (InputStream input = activity.getContentResolver().openInputStream(uri)) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new java.io.InterruptedIOException("Background import cancelled");
+            }
             if (input == null) return false;
             try (OutputStream output = new FileOutputStream(target)) {
                 byte[] buffer = new byte[16 * 1024];
                 int read;
-                while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
+                while ((read = input.read(buffer)) != -1) {
+                    if (Thread.currentThread().isInterrupted()) {
+                        throw new java.io.InterruptedIOException("Background import cancelled");
+                    }
+                    output.write(buffer, 0, read);
+                }
             }
             return target.isFile() && target.length() > 0L;
         } catch (Exception e) {
-            Log.w(TAG, "Unable to import selected background image", e);
+            if (!Thread.currentThread().isInterrupted()) {
+                Log.w(TAG, "Unable to import selected background image", e);
+            }
             if (target.exists()) target.delete();
             return false;
         }
