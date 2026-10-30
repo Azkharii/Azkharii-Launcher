@@ -198,12 +198,23 @@ public class CinematicBackgroundManager {
         else if (layer == imageViewB) wallpaperFileB = null;
     }
 
+    /** Cancels both running and queued decode work; retains the cached displayed bitmap. */
+    private void cancelPendingDecode() {
+        Future<?> task = pendingDecode;
+        pendingDecode = null;
+        if (task == null) return;
+        task.cancel(true);
+        if (task instanceof Runnable && decodeExecutor instanceof ThreadPoolExecutor) {
+            ((ThreadPoolExecutor) decodeExecutor).remove((Runnable) task);
+        }
+    }
+
     /** Starts a worker decode and crossfades to an explicitly selected app-managed photo. */
     public boolean showWallpaper(File file) {
         if (file == null || !isSupportedImage(file) || destroyed || !isVisible) return false;
         mainHandler.removeCallbacks(rotationRunnable);
         queue.markDisplayed(file);
-        if (pendingDecode != null) pendingDecode.cancel(true);
+        cancelPendingDecode();
         if (crossfadeAnimator != null) {
             crossfadeAnimator.cancel();
             crossfadeAnimator = null;
@@ -257,10 +268,7 @@ public class CinematicBackgroundManager {
                 // Drop pending work and release both owned wallpaper bitmaps before restoring
                 // a valid default frame. This avoids retaining a removed full-resolution image.
                 workGeneration.incrementAndGet();
-                if (pendingDecode != null) {
-                    pendingDecode.cancel(true);
-                    pendingDecode = null;
-                }
+                cancelPendingDecode();
                 if (crossfadeAnimator != null) {
                     crossfadeAnimator.cancel();
                     crossfadeAnimator = null;
@@ -303,10 +311,7 @@ public class CinematicBackgroundManager {
         isVisible = false;
         workGeneration.incrementAndGet();
         mainHandler.removeCallbacks(rotationRunnable);
-        if (pendingDecode != null) {
-            pendingDecode.cancel(true);
-            pendingDecode = null;
-        }
+        cancelPendingDecode();
         if (crossfadeAnimator != null) crossfadeAnimator.cancel();
 
     }

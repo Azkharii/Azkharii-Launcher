@@ -2,6 +2,7 @@ package com.cinematic.tvlauncher.carousel;
 
 import android.content.Context;
 import android.net.Uri;
+import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -22,6 +23,7 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import java.io.ByteArrayOutputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -32,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import com.cinematic.tvlauncher.WatchNextEntryPolicy;
 import com.cinematic.tvlauncher.WatchNextRepository;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -93,15 +96,19 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     private int refreshGeneration;
     private volatile boolean hostPaused = true;
     private volatile Future<?> dataTask;
+    private volatile CancellationSignal dataQueryCancellation;
     private final AtomicInteger artworkGeneration = new AtomicInteger();
     // Track poster work by the visible item that owns it so off-wheel jobs can be cancelled.
     private final Map<FrameLayout, Set<Future<?>>> artworkTasks = new HashMap<>();
+    private final Set<InputStream> activeArtworkStreams = ConcurrentHashMap.newKeySet();
     private OnItemsChangedListener itemsChangedListener;
     private final List<FrameLayout> slotViews = new ArrayList<>();
 
     private final List<MediaItem> items = new ArrayList<>();
     private int selectedIndex = 0;
     private boolean animating = false;
+    private boolean renderAfterResume;
+    private android.animation.ValueAnimator wheelAnimator;
     // Reuse the five visible-card transforms across navigation events.
     private final float[][] fromTransforms = new float[MAX_VISIBLE_ITEMS][4];
     private final float[][] toTransforms = new float[MAX_VISIBLE_ITEMS][4];
@@ -189,6 +196,10 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     /** Resume Watch Next polling and poster work only while the launcher is foreground. */
     public void resumeBackgroundWork() {
         if (hostPaused) hostPaused = false;
+        if (renderAfterResume) {
+            renderAfterResume = false;
+            renderWheel();
+        }
         watchNextRepository.registerObserver(this::scheduleRefresh);
         scheduleRefresh();
     }
@@ -200,10 +211,31 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         artworkGeneration.incrementAndGet();
         refreshHandler.removeCallbacks(scheduledRefresh);
         watchNextRepository.unregisterObserver();
+        cancelDataQuery();
+        cancelAllArtworkTasks();
+        boolean interruptedAnimation = animating;
+        android.animation.ValueAnimator running = wheelAnimator;
+        wheelAnimator = null;
+        if (running != null) running.cancel();
+        animating = false;
+        if (interruptedAnimation) {
+            renderWheel(false);
+            renderAfterResume = true;
+        }
+    }
+
+    private void cancelDataQuery() {
+        CancellationSignal signal = dataQueryCancellation;
+        dataQueryCancellation = null;
+        if (signal != null) signal.cancel();
         Future<?> query = dataTask;
         dataTask = null;
-        if (query != null) query.cancel(true);
-        cancelAllArtworkTasks();
+        if (query != null) {
+            query.cancel(true);
+            if (query instanceof Runnable && DATA_EXECUTOR instanceof ThreadPoolExecutor) {
+                ((ThreadPoolExecutor) DATA_EXECUTOR).remove((Runnable) query);
+            }
+        }
     }
 
     private void scheduleRefresh() {
@@ -225,17 +257,23 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         if (hostPaused) return;
         long previousId = items.isEmpty()
                 ? -1L : items.get(Math.floorMod(selectedIndex, items.size())).id;
+        cancelDataQuery();
         final int requestId = ++refreshGeneration;
+        final CancellationSignal cancellationSignal = new CancellationSignal();
+        dataQueryCancellation = cancellationSignal;
 
         try {
         dataTask = DATA_EXECUTOR.submit(() -> {
-            if (hostPaused || Thread.currentThread().isInterrupted()) return;
-            List<WatchNextRepository.Entry> entries = watchNextRepository.queryContinueWatching();
+            try {
+            if (hostPaused || Thread.currentThread().isInterrupted()
+                    || cancellationSignal.isCanceled()) return;
+            List<WatchNextRepository.Entry> entries =
+                    watchNextRepository.queryContinueWatching(cancellationSignal);
             List<MediaItem> result = new ArrayList<>(entries.size());
             for (WatchNextRepository.Entry entry : entries) result.add(new MediaItem(entry));
 
             post(() -> {
-                if (hostPaused || requestId != refreshGeneration) return;
+                if (hostPaused || cancellationSignal.isCanceled() || requestId != refreshGeneration) return;
                 boolean sameContent = hasSameRenderedItems(result);
                 if (!sameContent) {
                     items.clear();
@@ -261,8 +299,12 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 }
                 if (itemsChangedListener != null) itemsChangedListener.onItemsChanged();
             });
+            } finally {
+                if (dataQueryCancellation == cancellationSignal) dataQueryCancellation = null;
+            }
         });
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            if (dataQueryCancellation == cancellationSignal) dataQueryCancellation = null;
             // The shared query executor may be shutting down with the process.
         }
     }
@@ -397,6 +439,11 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             }
             artworkTasks.clear();
         }
+        // Closing the streams also releases sockets/providers that may not unblock on interrupt alone.
+        for (InputStream stream : activeArtworkStreams) {
+            try { stream.close(); } catch (IOException ignored) {}
+        }
+        activeArtworkStreams.clear();
     }
 
     /** Applies poster colors on the UI thread after sampling has completed on the worker. */
@@ -420,13 +467,21 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         // Read the source once. Reopening remote/provider URIs for bounds and pixels could make
         // each poster wait through two network timeouts before it appeared on the TV.
         byte[] sourceBytes;
-        try (InputStream input = openArtworkStream(uri)) {
-            if (input == null) return null;
+        InputStream opened = openArtworkStream(uri);
+        if (opened == null) return null;
+        activeArtworkStreams.add(opened);
+        try (InputStream input = opened) {
+            if (hostPaused || Thread.currentThread().isInterrupted()) {
+                throw new java.io.InterruptedIOException("Watch Next artwork cancelled");
+            }
             ByteArrayOutputStream output = new ByteArrayOutputStream(32 * 1024);
             byte[] buffer = new byte[16 * 1024];
             int totalBytes = 0;
             int count;
             while ((count = input.read(buffer)) != -1) {
+                if (hostPaused || Thread.currentThread().isInterrupted()) {
+                    throw new java.io.InterruptedIOException("Watch Next artwork cancelled");
+                }
                 totalBytes += count;
                 if (totalBytes > MAX_ARTWORK_SOURCE_BYTES) {
                     throw new IOException("Watch Next artwork exceeds the 6 MiB source limit");
@@ -434,6 +489,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 output.write(buffer, 0, count);
             }
             sourceBytes = output.toByteArray();
+        } finally {
+            activeArtworkStreams.remove(opened);
         }
         if (sourceBytes.length == 0) return null;
 
@@ -463,7 +520,16 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             connection.setReadTimeout(2500);
             connection.setUseCaches(true);
             connection.setRequestProperty("Accept", "image/*,*/*;q=0.5");
-            return connection.getInputStream();
+            InputStream networkStream = connection.getInputStream();
+            if (connection instanceof java.net.HttpURLConnection) {
+                return new FilterInputStream(networkStream) {
+                    @Override public void close() throws IOException {
+                        try { super.close(); }
+                        finally { ((java.net.HttpURLConnection) connection).disconnect(); }
+                    }
+                };
+            }
+            return networkStream;
         }
         if ("content".equalsIgnoreCase(scheme)
                 || "android.resource".equalsIgnoreCase(scheme)
@@ -474,13 +540,17 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     }
 
     private void renderWheel() {
+        renderWheel(true);
+    }
+
+    private void renderWheel(boolean restoreFocusOnLayout) {
         cancelAllArtworkTasks();
         if (items.isEmpty()) {
             removeAllViews();
             setVisibility(View.GONE);
             return;
         }
-        View currentFocus = findFocus();
+        View currentFocus = restoreFocusOnLayout ? findFocus() : null;
         boolean restoreFocus = currentFocus != null && isDescendantOf(currentFocus, this);
         removeAllViews();
         slotViews.clear();
@@ -498,7 +568,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
 
         post(() -> {
             layoutWheelCards();
-            if (restoreFocus) {
+            if (restoreFocus && !hostPaused) {
                 View center = getCenterChild();
                 if (center != null) center.requestFocus();
             }
@@ -849,6 +919,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         animating = true;
 
         android.animation.ValueAnimator animator = android.animation.ValueAnimator.ofFloat(0f, 1f);
+        wheelAnimator = animator;
         animator.setDuration(220);
         animator.setInterpolator(new android.view.animation.DecelerateInterpolator());
         animator.addUpdateListener(animation -> {
@@ -873,9 +944,9 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 incoming.setFocusable(true);
                 incoming.setClickable(true);
 
-                // Focus the new center before detaching only the edge card.
+                // Do not request window focus when cancel() settles this animation during onPause().
                 View center = getCenterChild();
-                if (center != null) center.requestFocus();
+                if (!hostPaused && center != null) center.requestFocus();
                 if (outgoing != null) {
                     cancelArtworkTasks(outgoing);
                     removeView(outgoing);
@@ -887,10 +958,12 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 }
                 selectedIndex = newSelection;
                 animating = false;
+                if (wheelAnimator == animator) wheelAnimator = null;
             }
 
             @Override public void onAnimationCancel(android.animation.Animator animation) {
                 animating = false;
+                if (wheelAnimator == animator) wheelAnimator = null;
             }
         });
         animator.start();

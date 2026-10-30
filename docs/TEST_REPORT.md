@@ -329,3 +329,55 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - Tightened the weather text card's padding and typography to fit the temperature and locality without the removed leading graphic.
 - Added a small greeting above the clock: 06:00–11:59 “Buenos días”, 12:00–18:59 “Buenas tardes”, and 19:00–05:59 “Buenas noches”. The value is derived from the existing clock/date update event; no additional timer, polling loop, or background worker is created.
 - Added boundary tests for all three transitions and invalid hour values. Hosted CI/build validation: pending for this branch. Physical TV layout/focus review remains pending.
+
+
+## Weather HUD location visibility and rotating advice — 2026-10-30
+
+- Reduced the weather pill vertical lift from 30dp to 10dp so its two text rows no longer intrude into the greeting area; expanded its text allowance to 250dp and tightened internal padding/line spacing so the locality remains visible.
+- Extended the Open-Meteo current-weather request with apparent temperature and WMO condition code. Both are cached with the temperature/location so the advice remains correct when rendering cached weather offline.
+- Added short Spanish advice that rotates every 9 seconds while the launcher is foregrounded. Advice considers apparent temperature and condition: hydration/shade/fan for heat, jacket for cold, umbrella for rain, shelter for thunderstorms, and sunscreen for sunny weather. “Llamen a Dios” is reserved for perceived temperatures of 42°C or higher.
+- Added pure JVM policy tests for temperature thresholds, condition categories, and phrase rotation. The timer is cancelled when the launcher pauses.
+- Automated build/test and physical TV layout validation: pending this PR and device verification. No APK installation or TV setting changes performed.
+
+
+## Navigation marker alignment when leaving the app library — 2026-10-30
+
+- Root cause: the navigation marker is attached to the root container, while the home content (safeContainer) and the library overlay animate independently. Focus callbacks could therefore measure a card while its parent was still moving, placing the marker at an intermediate Y coordinate.
+- Replaced the two independent view-property animations with one AnimatorSet so both panels share a single transition timeline.
+- Suppressed marker geometry updates during the transition, including direct carousel callbacks, then recompute the marker once both views have reached their final translations and focus has returned to the correct carousel.
+- Existing transition durations are preserved (280ms opening, 160ms closing); no navigation color or selected-card behavior is intentionally changed.
+- Automated Android build and physical remote-control verification: pending CI and testing on the Hisense TV. No TV settings or installed apps changed.
+
+## Foreground-only work and verification failure repair — 2026-10-30
+
+### Previous CI failure
+- Build workflow run #136 (41139566890) and signed-validation run #84 (41139566518) both reached Java compilation and failed in WeatherWidgetManager.java.
+- Exact compiler diagnostics: label might not have been initialized and preferences might not have been initialized in the field initializer for the rotating-advice Runnable. The lambda referenced constructor-initialized final fields before definite assignment.
+- The advice callback now uses a method reference and reads those fields only when invoked. This is a Java initialization-order correction; signing secrets were decoded successfully in the failed signed workflow and were not changed.
+
+### Background-execution audit
+- The app manifest declares one launcher Activity and a non-exported FileProvider; it declares no Android Service. Repository searches found no WorkManager, JobScheduler, or AlarmManager scheduling path.
+- The long-lived work observed in source is Activity/view-owned: Handler callbacks, thread-pool tasks, system callbacks/receivers, and the Watch Next ContentObserver.
+- The existing foreground lifecycle already stopped the performance HUD sampler, clock receiver, connectivity callback, wallpaper rotation/decode/crossfade, adaptive HUD palette sampling, weather rotation/location/network request, and Watch Next observer/artwork tasks on onPause(). These behaviors are retained.
+- LauncherApps package-change observation is now registered in onResume() and unregistered in onPause(), rather than remaining registered for the whole Activity lifetime.
+- Weather work now invalidates old request generations, removes cancelled queued work, disconnects its HTTP request, cancels location callbacks/timeouts, and prevents an old worker from clearing the state of a newer request after a quick resume.
+- Wallpaper decode cancellation now also removes cancelled FutureTasks from its executor queue. Watch Next data queries use CancellationSignal and are cancelled at both the provider and executor levels; the ContentObserver and artwork tasks are still unregistered/cancelled on pause.
+- Background-photo management now tracks visible-thumbnail and import FutureTasks. Leaving the launcher cancels/removes queued work, interrupts running work, closes the active import stream, and invalidates pending UI deliveries. Returning to the launcher re-enables the manager and reloads any images completed immediately before the pause; an open photo dialog can re-request only its visible thumbnails.
+- The manual updater remains user-initiated (no polling/timer). Its in-flight release/checksum/APK HTTP connections are disconnected on pause, its active task and partial APK are cancelled/removed, and hashing/stream reads check interruption. A fully validated APK that finishes at the lifecycle boundary is deferred through the existing pending-install preference until the launcher next resumes; no unverified or partial file is installed.
+- The small recent-selection persistence write in onPause() is intentionally retained; it is a one-shot save, not background polling.
+
+### Validation status
+- Source changes are committed to the existing PR branch. GitHub Actions for the new head must pass before claiming a successful Android build or signed APK.
+- Unit tests, integrity checks, Debug APK, optimized Release/R8 APK, APK inspection, and artifact upload: PASS on code head `df9ff6c66d15611d6490ce3fbb035d3b3614b6f1`, Build workflow run #152 (`41141909284`). Debug APK: 3,313,618 bytes; SHA-256 `e05f085521faeae3449e9d8034f9145a82330732382b05963a4ac21d9aed4600`.
+- Runtime task/thread counts, rapid app-switch testing, HOME re-entry, and visual behavior on the Hisense TV: NOT TESTED on device. A thread-pool worker may remain idle until its configured 15-second keep-alive expires after cancellation; no task is intentionally left executing. Android may also keep the Activity process cached for fast HOME restoration. Neither behavior is a foreground service or active background job.
+
+## Final lifecycle audit addendum — 2026-10-30
+
+- Search of the repository confirms five production classes own delayed Handler work: MainActivity, PerformanceHud, WeatherWidgetManager, CinematicBackgroundManager, and ContinueWatchingWheelView. Each recurring/delayed callback is removed or made ineligible when its owning Activity/view pauses. TvControlManager's Wi-Fi callback is also removed on pause.
+- System subscriptions are limited to the Activity clock receiver, LauncherApps package-change callback, ConnectivityManager default-network callback, and the Watch Next ContentObserver. The latter three are now foreground-scoped; all are unregistered on pause.
+- Animation inventory found the HUD tint ValueAnimator, app-carousel ValueAnimator, Continue Watching wheel ValueAnimator, wallpaper crossfade ObjectAnimator/AnimatorSet, and the app-library AnimatorSet. Each is now stopped or settled on pause. Carousel movement queues are cleared; the selected card remains the selected card. An interrupted Watch Next wheel is rebuilt at its stable selection and its artwork is reloaded only after resume.
+- Watch Next artwork tasks now track and close active streams as well as cancelling Futures/removing queued work. HTTP artwork streams explicitly disconnect their HttpURLConnection on close. Background photo thumbnail decoders use tracked file streams that are closed when the Activity pauses.
+- No app Service component, WorkManager, JobScheduler, AlarmManager, TimerTask, HandlerThread, or custom unmanaged Thread was found in the application source/manifest. The app is Activity-owned; Android may retain its paused process in the cached-process state, which is distinct from the app continuing to run tasks.
+- Executor pools are reusable across resume; cancelling their Futures does not destroy the pool object. Their worker threads are configured with a 15-second idle keep-alive and exit when idle. A native bitmap decoder already executing inside Android's decode call may finish that single call despite thread interruption; its generation/foreground checks prevent any follow-on work or UI delivery.
+- The only deliberate onPause work retained is a one-shot persistence of the recent app selection. This is a small save operation, not recurring background activity.
+- Code head `df9ff6c66d15611d6490ce3fbb035d3b3614b6f1` passed Build workflow run #152 (`41141909284`) including unit tests, integrity checks, Debug and optimized Release/R8 compilation, APK inspection, and Debug artifact upload. Signed Release build and signature verification passed in signing workflow run #100 (`41141909280`). Debug artifact ID `13018963846`; SHA-256 of uploaded ZIP `76951a139f7eb22c306b5c8eaf541c4dfdf640f24390b3b5ff2b4cba7962a419`. No TV installation or physical remote-control test was performed.
