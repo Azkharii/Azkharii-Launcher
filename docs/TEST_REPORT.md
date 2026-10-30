@@ -329,3 +329,12 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - Tightened the weather text card's padding and typography to fit the temperature and locality without the removed leading graphic.
 - Added a small greeting above the clock: 06:00–11:59 “Buenos días”, 12:00–18:59 “Buenas tardes”, and 19:00–05:59 “Buenas noches”. The value is derived from the existing clock/date update event; no additional timer, polling loop, or background worker is created.
 - Added boundary tests for all three transitions and invalid hour values. Hosted CI/build validation: pending for this branch. Physical TV layout/focus review remains pending.
+
+
+## Weather HUD location visibility and rotating advice — 2026-10-30
+
+- Reduced the weather pill vertical lift from 30dp to 10dp so its two text rows no longer intrude into the greeting area; expanded its text allowance to 250dp and tightened internal padding/line spacing so the locality remains visible.
+- Extended the Open-Meteo current-weather request with apparent temperature and WMO condition code. Both are cached with the temperature/location so the advice remains correct when rendering cached weather offline.
+- Added short Spanish advice that rotates every 9 seconds while the launcher is foregrounded. Advice considers apparent temperature and condition: hydration/shade/fan for heat, jacket for cold, umbrella for rain, shelter for thunderstorms, and sunscreen for sunny weather. “Llamen a Dios” is reserved for perceived temperatures of 42°C or higher.
+- Added pure JVM policy tests for temperature thresholds, condition categories, and phrase rotation. The timer is cancelled when the launcher pauses.
+- Automated build/test and physical TV layout validation: pending this PR and device verification. No APK installation or TV setting changes performed.
