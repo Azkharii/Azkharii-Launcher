@@ -104,6 +104,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     private final List<MediaItem> items = new ArrayList<>();
     private int selectedIndex = 0;
     private boolean animating = false;
+    private android.animation.ValueAnimator wheelAnimator;
     // Reuse the five visible-card transforms across navigation events.
     private final float[][] fromTransforms = new float[MAX_VISIBLE_ITEMS][4];
     private final float[][] toTransforms = new float[MAX_VISIBLE_ITEMS][4];
@@ -204,6 +205,12 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         watchNextRepository.unregisterObserver();
         cancelDataQuery();
         cancelAllArtworkTasks();
+        boolean interruptedAnimation = animating;
+        android.animation.ValueAnimator running = wheelAnimator;
+        wheelAnimator = null;
+        if (running != null) running.cancel();
+        animating = false;
+        if (interruptedAnimation) renderWheel(false);
     }
 
     private void cancelDataQuery() {
@@ -498,13 +505,17 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     }
 
     private void renderWheel() {
+        renderWheel(true);
+    }
+
+    private void renderWheel(boolean restoreFocusOnLayout) {
         cancelAllArtworkTasks();
         if (items.isEmpty()) {
             removeAllViews();
             setVisibility(View.GONE);
             return;
         }
-        View currentFocus = findFocus();
+        View currentFocus = restoreFocusOnLayout ? findFocus() : null;
         boolean restoreFocus = currentFocus != null && isDescendantOf(currentFocus, this);
         removeAllViews();
         slotViews.clear();
@@ -522,7 +533,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
 
         post(() -> {
             layoutWheelCards();
-            if (restoreFocus) {
+            if (restoreFocus && !hostPaused) {
                 View center = getCenterChild();
                 if (center != null) center.requestFocus();
             }
@@ -873,6 +884,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         animating = true;
 
         android.animation.ValueAnimator animator = android.animation.ValueAnimator.ofFloat(0f, 1f);
+        wheelAnimator = animator;
         animator.setDuration(220);
         animator.setInterpolator(new android.view.animation.DecelerateInterpolator());
         animator.addUpdateListener(animation -> {
@@ -911,10 +923,12 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 }
                 selectedIndex = newSelection;
                 animating = false;
+                if (wheelAnimator == animator) wheelAnimator = null;
             }
 
             @Override public void onAnimationCancel(android.animation.Animator animation) {
                 animating = false;
+                if (wheelAnimator == animator) wheelAnimator = null;
             }
         });
         animator.start();
