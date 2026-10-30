@@ -7,6 +7,8 @@ public final class WeatherAdvicePolicyTest {
     public static void runTests() {
         assert WeatherAdvicePolicy.phrasesFor(42, 42, 0)[0].equals("Llamen a Dios")
                 : "extreme heat must use the requested special phrase";
+        assert WeatherAdvicePolicy.phrasesFor(40, 42, 0)[0].equals("Llamen a Dios")
+                : "apparent extreme heat must trigger the special phrase";
         assert WeatherAdvicePolicy.phrasesFor(38, 38, 0)[0].equals("Calor intenso")
                 : "intense heat advice";
         assert WeatherAdvicePolicy.phrasesFor(33, 34, 1)[0].equals("Toma agua")
