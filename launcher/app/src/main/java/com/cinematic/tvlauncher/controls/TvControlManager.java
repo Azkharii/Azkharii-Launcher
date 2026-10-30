@@ -71,6 +71,7 @@ public class TvControlManager {
     private final Set<String> failedBackgroundThumbnailKeys = ConcurrentHashMap.newKeySet();
     private final Set<Future<?>> backgroundThumbnailTasks = ConcurrentHashMap.newKeySet();
     private final Set<Future<?>> backgroundImportTasks = ConcurrentHashMap.newKeySet();
+    private final Set<InputStream> activeThumbnailStreams = ConcurrentHashMap.newKeySet();
     private volatile long backgroundThumbnailGeneration;
     private volatile long backgroundImportGeneration;
     private volatile boolean managerPaused = true;
@@ -199,6 +200,7 @@ public class TvControlManager {
         if (importInput != null) {
             try { importInput.close(); } catch (Exception ignored) {}
         }
+        closeTrackedStreams(activeThumbnailStreams);
         pendingBackgroundThumbnailKeys.clear();
         networkHandler.removeCallbacks(wifiRefresh);
         if (!networkCallbackRegistered || connectivityManager == null) return;
@@ -218,6 +220,13 @@ public class TvControlManager {
         }
         tasks.clear();
         executor.purge();
+    }
+
+    private void closeTrackedStreams(Set<InputStream> streams) {
+        for (InputStream stream : streams) {
+            try { stream.close(); } catch (Exception ignored) {}
+        }
+        streams.clear();
     }
 
     private void scheduleWifiIndicatorRefresh() {
@@ -615,12 +624,14 @@ public class TvControlManager {
      * Decode only a thumbnail. Full-resolution wallpapers stay on the background worker.
      */
     private Bitmap decodeBackgroundThumbnail(File file) {
-        if (file == null || !file.isFile()) return null;
+        if (file == null || !file.isFile() || managerPaused
+                || Thread.currentThread().isInterrupted()) return null;
         try {
             BitmapFactory.Options bounds = new BitmapFactory.Options();
             bounds.inJustDecodeBounds = true;
-            BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
+            decodeThumbnailPass(file, bounds);
+            if (managerPaused || Thread.currentThread().isInterrupted()
+                    || bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
 
             int targetWidth = Math.max(1, dp(52) * 2);
             int targetHeight = Math.max(1, dp(30) * 2);
@@ -629,14 +640,38 @@ public class TvControlManager {
                     || bounds.outHeight / (sampleSize * 2) >= targetHeight) {
                 sampleSize *= 2;
             }
+            if (managerPaused || Thread.currentThread().isInterrupted()) return null;
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inSampleSize = sampleSize;
             options.inPreferredConfig = Bitmap.Config.RGB_565;
             options.inDither = true;
-            return BitmapFactory.decodeFile(file.getAbsolutePath(), options);
+            return decodeThumbnailPass(file, options);
         } catch (RuntimeException e) {
-            Log.w(TAG, "Could not create a wallpaper thumbnail", e);
+            if (!managerPaused && !Thread.currentThread().isInterrupted()) {
+                Log.w(TAG, "Could not create a wallpaper thumbnail", e);
+            }
             return null;
+        }
+    }
+
+    private Bitmap decodeThumbnailPass(File file, BitmapFactory.Options options) {
+        InputStream opened = null;
+        try {
+            if (managerPaused || Thread.currentThread().isInterrupted()) return null;
+            opened = new java.io.BufferedInputStream(new java.io.FileInputStream(file));
+            activeThumbnailStreams.add(opened);
+            if (managerPaused || Thread.currentThread().isInterrupted()) return null;
+            return BitmapFactory.decodeStream(opened, null, options);
+        } catch (java.io.IOException | RuntimeException e) {
+            if (!managerPaused && !Thread.currentThread().isInterrupted()) {
+                Log.w(TAG, "Could not read a wallpaper thumbnail", e);
+            }
+            return null;
+        } finally {
+            if (opened != null) {
+                activeThumbnailStreams.remove(opened);
+                try { opened.close(); } catch (java.io.IOException ignored) {}
+            }
         }
     }
 
