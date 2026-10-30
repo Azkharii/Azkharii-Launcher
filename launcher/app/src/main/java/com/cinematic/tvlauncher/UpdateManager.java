@@ -138,6 +138,7 @@ public final class UpdateManager {
             connection.setRequestProperty("User-Agent","CinematicTVLauncher/"+BuildConfig.VERSION_NAME);
 
             int status=connection.getResponseCode();
+            if(shouldStop())return;
             if(status==404){
                 recordCheckFailure("NO_PUBLIC_RELEASE");
                 showManualStatus("GitHub no encontró una versión pública publicada.");
@@ -423,14 +424,21 @@ public final class UpdateManager {
     private static String readLimited(InputStream input,int max) throws Exception{
         try(InputStream stream=input;java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream()){
             byte[] buffer=new byte[8192];int count,total=0;
-            while((count=stream.read(buffer))!=-1){total+=count;if(total>max)throw new IllegalStateException("Release JSON too large");out.write(buffer,0,count);}
+            while((count=stream.read(buffer))!=-1){
+                if(Thread.currentThread().isInterrupted())throw new java.io.InterruptedIOException("Launcher left foreground");
+                total+=count;if(total>max)throw new IllegalStateException("Release JSON too large");out.write(buffer,0,count);
+            }
             return new String(out.toByteArray(),StandardCharsets.UTF_8);
         }
     }
     private static String sha256(File file)throws Exception{
         MessageDigest digest=MessageDigest.getInstance("SHA-256");
         try(InputStream input=new FileInputStream(file)){byte[] buffer=new byte[16384];int count;
-            while((count=input.read(buffer))!=-1)digest.update(buffer,0,count);}
+            while((count=input.read(buffer))!=-1){
+                if(Thread.currentThread().isInterrupted())throw new java.io.InterruptedIOException("Launcher left foreground");
+                digest.update(buffer,0,count);
+            }
+        }
         StringBuilder out=new StringBuilder(64);
         for(byte value:digest.digest())out.append(String.format(Locale.ROOT,"%02x",value&0xff));
         return out.toString();
