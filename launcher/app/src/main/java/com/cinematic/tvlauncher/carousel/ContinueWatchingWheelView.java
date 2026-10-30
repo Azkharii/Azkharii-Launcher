@@ -104,6 +104,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     private final List<MediaItem> items = new ArrayList<>();
     private int selectedIndex = 0;
     private boolean animating = false;
+    private boolean renderAfterResume;
     private android.animation.ValueAnimator wheelAnimator;
     // Reuse the five visible-card transforms across navigation events.
     private final float[][] fromTransforms = new float[MAX_VISIBLE_ITEMS][4];
@@ -192,6 +193,10 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     /** Resume Watch Next polling and poster work only while the launcher is foreground. */
     public void resumeBackgroundWork() {
         if (hostPaused) hostPaused = false;
+        if (renderAfterResume) {
+            renderAfterResume = false;
+            renderWheel();
+        }
         watchNextRepository.registerObserver(this::scheduleRefresh);
         scheduleRefresh();
     }
@@ -210,7 +215,10 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         wheelAnimator = null;
         if (running != null) running.cancel();
         animating = false;
-        if (interruptedAnimation) renderWheel(false);
+        if (interruptedAnimation) {
+            renderWheel(false);
+            renderAfterResume = true;
+        }
     }
 
     private void cancelDataQuery() {
