@@ -368,7 +368,7 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 
 ### Validation status
 - Source changes are committed to the existing PR branch. GitHub Actions for the new head must pass before claiming a successful Android build or signed APK.
-- Unit tests and Android compilation for this lifecycle revision: PENDING HOSTED CI.
+- Unit tests, integrity checks, Debug APK, optimized Release/R8 APK, APK inspection, and artifact upload: PASS on code head `df9ff6c66d15611d6490ce3fbb035d3b3614b6f1`, Build workflow run #152 (`41141909284`). Debug APK: 3,313,618 bytes; SHA-256 `e05f085521faeae3449e9d8034f9145a82330732382b05963a4ac21d9aed4600`.
 - Runtime task/thread counts, rapid app-switch testing, HOME re-entry, and visual behavior on the Hisense TV: NOT TESTED on device. A thread-pool worker may remain idle until its configured 15-second keep-alive expires after cancellation; no task is intentionally left executing. Android may also keep the Activity process cached for fast HOME restoration. Neither behavior is a foreground service or active background job.
 
 ## Final lifecycle audit addendum — 2026-10-30
@@ -380,4 +380,4 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - No app Service component, WorkManager, JobScheduler, AlarmManager, TimerTask, HandlerThread, or custom unmanaged Thread was found in the application source/manifest. The app is Activity-owned; Android may retain its paused process in the cached-process state, which is distinct from the app continuing to run tasks.
 - Executor pools are reusable across resume; cancelling their Futures does not destroy the pool object. Their worker threads are configured with a 15-second idle keep-alive and exit when idle. A native bitmap decoder already executing inside Android's decode call may finish that single call despite thread interruption; its generation/foreground checks prevent any follow-on work or UI delivery.
 - The only deliberate onPause work retained is a one-shot persistence of the recent app selection. This is a small save operation, not recurring background activity.
-- Latest code changes are in the existing PR #22 branch. Re-run unit tests, debug/release compilation, APK inspection, and signed APK verification on the latest PR head before declaring the revision validated. No TV installation or physical remote-control test was performed.
+- Code head `df9ff6c66d15611d6490ce3fbb035d3b3614b6f1` passed Build workflow run #152 (`41141909284`) including unit tests, integrity checks, Debug and optimized Release/R8 compilation, APK inspection, and Debug artifact upload. Signed Release build and signature verification passed in signing workflow run #100 (`41141909280`). Debug artifact ID `13018963846`; SHA-256 of uploaded ZIP `76951a139f7eb22c306b5c8eaf541c4dfdf640f24390b3b5ff2b4cba7962a419`. No TV installation or physical remote-control test was performed.
