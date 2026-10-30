@@ -2,6 +2,7 @@ package com.cinematic.tvlauncher.carousel;
 
 import android.content.Context;
 import android.net.Uri;
+import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -93,6 +94,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     private int refreshGeneration;
     private volatile boolean hostPaused = true;
     private volatile Future<?> dataTask;
+    private volatile CancellationSignal dataQueryCancellation;
     private final AtomicInteger artworkGeneration = new AtomicInteger();
     // Track poster work by the visible item that owns it so off-wheel jobs can be cancelled.
     private final Map<FrameLayout, Set<Future<?>>> artworkTasks = new HashMap<>();
@@ -200,6 +202,14 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         artworkGeneration.incrementAndGet();
         refreshHandler.removeCallbacks(scheduledRefresh);
         watchNextRepository.unregisterObserver();
+        cancelDataQuery();
+        cancelAllArtworkTasks();
+    }
+
+    private void cancelDataQuery() {
+        CancellationSignal signal = dataQueryCancellation;
+        dataQueryCancellation = null;
+        if (signal != null) signal.cancel();
         Future<?> query = dataTask;
         dataTask = null;
         if (query != null) {
@@ -208,7 +218,6 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 ((ThreadPoolExecutor) DATA_EXECUTOR).remove((Runnable) query);
             }
         }
-        cancelAllArtworkTasks();
     }
 
     private void scheduleRefresh() {
@@ -230,17 +239,23 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         if (hostPaused) return;
         long previousId = items.isEmpty()
                 ? -1L : items.get(Math.floorMod(selectedIndex, items.size())).id;
+        cancelDataQuery();
         final int requestId = ++refreshGeneration;
+        final CancellationSignal cancellationSignal = new CancellationSignal();
+        dataQueryCancellation = cancellationSignal;
 
         try {
         dataTask = DATA_EXECUTOR.submit(() -> {
-            if (hostPaused || Thread.currentThread().isInterrupted()) return;
-            List<WatchNextRepository.Entry> entries = watchNextRepository.queryContinueWatching();
+            try {
+            if (hostPaused || Thread.currentThread().isInterrupted()
+                    || cancellationSignal.isCanceled()) return;
+            List<WatchNextRepository.Entry> entries =
+                    watchNextRepository.queryContinueWatching(cancellationSignal);
             List<MediaItem> result = new ArrayList<>(entries.size());
             for (WatchNextRepository.Entry entry : entries) result.add(new MediaItem(entry));
 
             post(() -> {
-                if (hostPaused || requestId != refreshGeneration) return;
+                if (hostPaused || cancellationSignal.isCanceled() || requestId != refreshGeneration) return;
                 boolean sameContent = hasSameRenderedItems(result);
                 if (!sameContent) {
                     items.clear();
@@ -266,8 +281,13 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                 }
                 if (itemsChangedListener != null) itemsChangedListener.onItemsChanged();
             });
+            } finally {
+                if (dataQueryCancellation == cancellationSignal) dataQueryCancellation = null;
+            }
         });
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            if (dataQueryCancellation == cancellationSignal) dataQueryCancellation = null;
+        }
             // The shared query executor may be shutting down with the process.
         }
     }
