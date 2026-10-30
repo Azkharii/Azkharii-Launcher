@@ -217,6 +217,7 @@ public class TvControlManager {
             if (task instanceof Runnable) executor.remove((Runnable) task);
         }
         tasks.clear();
+        executor.purge();
     }
 
     private void scheduleWifiIndicatorRefresh() {
