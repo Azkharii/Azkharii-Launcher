@@ -227,3 +227,11 @@ No UI component, navigation behavior, Watch Next feature, wallpaper crossfade, o
 - **Signing validation PASS:** workflow run #76 built the signed APK and verified its signature.
 - Debug artifact SHA-256: `c25497969641d08c2f46adf0295b14948c404ab9cea369a43409a366c2f5ec64` (2,998,786 bytes).
 - **Physical TV validation remains pending:** repeat same-scene CPU/RAM samples and check focus, icon coloring, glow and navigation on the Hisense before claiming a measured performance improvement.
+
+
+## Text-only weather and event-driven day greeting — 2026-10-30
+
+- Removed the weather-condition vector-icon mapping, drawable attachment code, stored WMO-condition parsing, and seven icon drawables. Weather acquisition is now limited to the current temperature; locality, persisted results, foreground refresh cadence, and tap-to-refresh are preserved.
+- Reduced the text-only weather card padding, maximum width, font size, and line spacing to use less area after removing the icon.
+- The small greeting above the digital clock uses local device time: 06:00–11:59 morning, 12:00–18:59 afternoon, 19:00–05:59 night. It is recalculated only as part of the already-existing clock/date event, which is registered only while the launcher is foregrounded. No independent timer or polling loop was added.
+- No unrelated launcher animation, wallpaper, app-discovery, Watch Next, or navigation code was changed in this pass. Hosted tests/build and physical TV verification remain pending.

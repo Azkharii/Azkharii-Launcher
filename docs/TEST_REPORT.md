@@ -321,3 +321,11 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - **Signing validation:** PASS — workflow run #76 built the signed APK and verified its signature.
 - **Debug artifact:** 2,998,786 bytes; SHA-256 `c25497969641d08c2f46adf0295b14948c404ab9cea369a43409a366c2f5ec64`.
 - **Physical TV validation:** pending. No FPS, CPU, or RAM improvement is claimed until the same navigation scenarios are measured after installing the built APK.
+
+
+## Text-only weather readout and local-time greeting — 2026-10-30
+
+- Removed the weather-condition icon pipeline and its seven vector resources. The weather request now asks only for current temperature; cached city/location and temperature presentation, foreground-only refresh policy, explicit tap-to-refresh, and permission handling remain.
+- Tightened the weather text card's padding and typography to fit the temperature and locality without the removed leading graphic.
+- Added a small greeting above the clock: 06:00–11:59 “Buenos días”, 12:00–18:59 “Buenas tardes”, and 19:00–05:59 “Buenas noches”. The value is derived from the existing clock/date update event; no additional timer, polling loop, or background worker is created.
+- Added boundary tests for all three transitions and invalid hour values. Hosted CI/build validation: pending for this branch. Physical TV layout/focus review remains pending.

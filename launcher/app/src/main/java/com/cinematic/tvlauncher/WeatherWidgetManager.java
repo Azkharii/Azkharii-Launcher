@@ -47,7 +47,6 @@ public final class WeatherWidgetManager {
     private static final String PREFS_NAME = "cinematic_launcher_prefs";
     private static final String KEY_PERMISSION_ASKED = "weather_location_permission_asked";
     private static final String KEY_SUMMARY = "weather_summary";
-    private static final String KEY_WEATHER_CODE = "weather_code";
     private static final String KEY_LOCATION = "weather_location";
     private static final String KEY_UPDATED = "weather_updated_at";
     private static final String KEY_LAST_ATTEMPT = "weather_last_attempt_at";
@@ -77,6 +76,8 @@ public final class WeatherWidgetManager {
         preferences = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         connectivityManager = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (label != null) {
+            label.setCompoundDrawablesRelative(null, null, null, null);
+            label.setCompoundDrawablePadding(0);
             label.setOnClickListener(v -> handleClick());
             showCachedOrPrompt();
         }
@@ -323,7 +324,7 @@ public final class WeatherWidgetManager {
                             || !hasValidatedInternet()) return;
                     String query = String.format(Locale.US,
                             "https://api.open-meteo.com/v1/forecast?latitude=%.5f&longitude=%.5f"
-                                    + "&current=temperature_2m,weather_code&temperature_unit=celsius&timezone=auto",
+                                    + "&current=temperature_2m&temperature_unit=celsius&timezone=auto",
                             location.getLatitude(), location.getLongitude());
                     connection = (HttpURLConnection) new URL(query).openConnection();
                     activeConnection = connection;
@@ -345,11 +346,10 @@ public final class WeatherWidgetManager {
                     if (closed || paused || Thread.currentThread().isInterrupted()) return;
                     JSONObject current = new JSONObject(body.toString()).getJSONObject("current");
                     int temperature = (int) Math.round(current.getDouble("temperature_2m"));
-                    int code = current.getInt("weather_code");
                     String summary = temperature + "°C";
                     String place = TextUtils.isEmpty(city) ? "Ubicación automática" : city;
                     if (closed || paused || Thread.currentThread().isInterrupted()) return;
-                    preferences.edit().putString(KEY_SUMMARY, summary).putInt(KEY_WEATHER_CODE, code)
+                    preferences.edit().putString(KEY_SUMMARY, summary)
                             .putString(KEY_LOCATION, place)
                             .putFloat(KEY_LATITUDE, (float) location.getLatitude())
                             .putFloat(KEY_LONGITUDE, (float) location.getLongitude())
@@ -425,29 +425,7 @@ public final class WeatherWidgetManager {
         return null;
     }
 
-    private int weatherDrawable(int code) {
-        switch (WeatherIconPolicy.fromWmoCode(code)) {
-            case CLEAR: return R.drawable.weather_clear;
-            case PARTLY_CLOUDY: return R.drawable.weather_partly_cloudy;
-            case FOG: return R.drawable.weather_fog;
-            case RAIN: return R.drawable.weather_rain;
-            case SNOW: return R.drawable.weather_snow;
-            case STORM: return R.drawable.weather_storm;
-            case CLOUDY:
-            default: return R.drawable.weather_cloudy;
-        }
-    }
-
-    private void setWeatherDrawable(int drawableId) {
-        if (label == null) return;
-        android.graphics.drawable.Drawable icon = activity.getDrawable(drawableId);
-        int iconSize = Math.round(14f * activity.getResources().getDisplayMetrics().density);
-        icon.setBounds(0, 0, iconSize, iconSize);
-        label.setCompoundDrawablePadding(Math.round(4f * activity.getResources().getDisplayMetrics().density));
-        label.setCompoundDrawables(icon, null, null, null);
-    }
-
-    /** Supports the old emoji-prefixed cache format while migrating to vector icons. */
+    /** Strips the legacy icon prefix from previously cached temperature strings. */
     private String temperatureText(String summary) {
         if (summary == null) return "";
         String value = summary.trim();
@@ -461,15 +439,12 @@ public final class WeatherWidgetManager {
     private void render(String summary, String location) {
         if (label == null) return;
         String temperature = temperatureText(summary);
-        int code = preferences.getInt(KEY_WEATHER_CODE, 3);
-        setWeatherDrawable(weatherDrawable(code));
         label.setText(temperature + "\n" + location);
         label.setContentDescription("Clima actual: " + temperature + ". Ubicación: " + location + ". Pulsa para actualizar.");
     }
 
     private void showStatus(String value) {
         if (label != null) {
-            setWeatherDrawable(R.drawable.weather_cloudy);
             label.setText(value);
             label.setContentDescription(value);
         }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tools/run_tests.sh — Compiles and executes the unit test suite using OpenJDK 17.
-# Tests business logic: 10s rotation queue, carousel math/scaling/alpha, config validation.
+# Tests business logic: rotation queue, carousel math, time-of-day greeting and config validation.
 
 set -euo pipefail
 
@@ -20,10 +20,10 @@ javac -d "$BUILD_DIR" \
     launcher/app/src/main/java/com/cinematic/tvlauncher/WatchNextEntryPolicy.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/UpdateVersionPolicy.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/WeatherRefreshPolicy.java \
-    launcher/app/src/main/java/com/cinematic/tvlauncher/WeatherIconPolicy.java \
+    launcher/app/src/main/java/com/cinematic/tvlauncher/DayGreetingPolicy.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/UpdateVersionPolicyTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/WeatherRefreshPolicyTest.java \
-    launcher/app/src/test/java/com/cinematic/tvlauncher/WeatherIconPolicyTest.java \
+    launcher/app/src/test/java/com/cinematic/tvlauncher/DayGreetingPolicyTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/WatchNextEntryPolicyTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/PinnedWheelSlotOrderTest.java \
     launcher/app/src/test/java/android/content/Context.java \

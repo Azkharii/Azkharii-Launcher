@@ -78,11 +78,11 @@ public class TestMain {
         }
 
         try {
-            System.out.println("8. Running WeatherIconPolicyTest (WMO weather-code mapping)...");
-            WeatherIconPolicyTest.runTests();
+            System.out.println("8. Running DayGreetingPolicyTest (local-time boundaries)...");
+            DayGreetingPolicyTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
-            System.err.println("  [FAIL] WeatherIconPolicyTest: " + t.getMessage());
+            System.err.println("  [FAIL] DayGreetingPolicyTest: " + t.getMessage());
             t.printStackTrace();
         }
 

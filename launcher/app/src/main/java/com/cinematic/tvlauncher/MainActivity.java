@@ -94,6 +94,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private FocusNavigationController focusController;
     private LauncherConfig launcherConfig;
 
+    private TextView tvGreeting;
     private TextView tvClock;
     private TextView tvDate;
     private TextView tvWeather;
@@ -225,6 +226,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     private void initViews() {
         ImageView bgImageA = findViewById(R.id.bg_image_a);
         ImageView bgImageB = findViewById(R.id.bg_image_b);
+        tvGreeting = findViewById(R.id.tv_greeting);
         tvClock = findViewById(R.id.tv_clock);
         tvDate = findViewById(R.id.tv_date);
         tvWeather = findViewById(R.id.tv_weather);
@@ -475,6 +477,13 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
 
     private void updateClockAndDate() {
         Date now = new Date();
+        java.util.Calendar localTime = java.util.Calendar.getInstance();
+        localTime.setTime(now);
+        String greeting = DayGreetingPolicy.forHour(
+                localTime.get(java.util.Calendar.HOUR_OF_DAY));
+        if (tvGreeting != null && !greeting.equals(tvGreeting.getText().toString())) {
+            tvGreeting.setText(greeting);
+        }
         Locale locale = Locale.getDefault();
         SimpleDateFormat timeFormat = new SimpleDateFormat("HH:mm", locale);
         if (tvClock != null) {
@@ -1212,6 +1221,9 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
                 tvClock.setShadowLayer(dp(6), 0f, 0f, shadowColor);
                 lastClockShadowColor = shadowColor;
             }
+        }
+        if (tvGreeting != null && tvGreeting.getCurrentTextColor() != accent) {
+            tvGreeting.setTextColor(accent);
         }
         if (tvDate != null) {
             if (tvDate.getCurrentTextColor() != accent) tvDate.setTextColor(accent);
