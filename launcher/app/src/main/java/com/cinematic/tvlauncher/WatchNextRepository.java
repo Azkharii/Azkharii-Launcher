@@ -7,6 +7,7 @@ import android.content.pm.PackageManager;
 import android.database.ContentObserver;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.BaseColumns;
@@ -103,10 +104,14 @@ public final class WatchNextRepository {
     }
 
     public List<Entry> queryContinueWatching() {
+        return queryContinueWatching(null);
+    }
+
+    public List<Entry> queryContinueWatching(CancellationSignal cancellationSignal) {
         List<Entry> result = new ArrayList<>();
         Cursor cursor = null;
         try {
-            cursor = resolver.query(WATCH_NEXT_URI, PROJECTION, null, null, null);
+            cursor = resolver.query(WATCH_NEXT_URI, PROJECTION, null, null, null, cancellationSignal);
             if (cursor == null) {
                 Log.w(TAG, "System Watch Next provider returned a null cursor.");
                 return result;
