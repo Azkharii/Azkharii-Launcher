@@ -347,3 +347,26 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - Suppressed marker geometry updates during the transition, including direct carousel callbacks, then recompute the marker once both views have reached their final translations and focus has returned to the correct carousel.
 - Existing transition durations are preserved (280ms opening, 160ms closing); no navigation color or selected-card behavior is intentionally changed.
 - Automated Android build and physical remote-control verification: pending CI and testing on the Hisense TV. No TV settings or installed apps changed.
+
+## Foreground-only work and verification failure repair — 2026-10-30
+
+### Previous CI failure
+- Build workflow run #136 (41139566890) and signed-validation run #84 (41139566518) both reached Java compilation and failed in WeatherWidgetManager.java.
+- Exact compiler diagnostics: label might not have been initialized and preferences might not have been initialized in the field initializer for the rotating-advice Runnable. The lambda referenced constructor-initialized final fields before definite assignment.
+- The advice callback now uses a method reference and reads those fields only when invoked. This is a Java initialization-order correction; signing secrets were decoded successfully in the failed signed workflow and were not changed.
+
+### Background-execution audit
+- The app manifest declares one launcher Activity and a non-exported FileProvider; it declares no Android Service. Repository searches found no WorkManager, JobScheduler, or AlarmManager scheduling path.
+- The long-lived work observed in source is Activity/view-owned: Handler callbacks, thread-pool tasks, system callbacks/receivers, and the Watch Next ContentObserver.
+- The existing foreground lifecycle already stopped the performance HUD sampler, clock receiver, connectivity callback, wallpaper rotation/decode/crossfade, adaptive HUD palette sampling, weather rotation/location/network request, and Watch Next observer/artwork tasks on onPause(). These behaviors are retained.
+- LauncherApps package-change observation is now registered in onResume() and unregistered in onPause(), rather than remaining registered for the whole Activity lifetime.
+- Weather work now invalidates old request generations, removes cancelled queued work, disconnects its HTTP request, cancels location callbacks/timeouts, and prevents an old worker from clearing the state of a newer request after a quick resume.
+- Wallpaper decode cancellation now also removes cancelled FutureTasks from its executor queue. Watch Next data queries use CancellationSignal and are cancelled at both the provider and executor levels; the ContentObserver and artwork tasks are still unregistered/cancelled on pause.
+- Background-photo management now tracks visible-thumbnail and import FutureTasks. Leaving the launcher cancels/removes queued work, interrupts running work, closes the active import stream, and invalidates pending UI deliveries. Returning to the launcher re-enables the manager and reloads any images completed immediately before the pause; an open photo dialog can re-request only its visible thumbnails.
+- The manual updater remains user-initiated (no polling/timer). Its in-flight release/checksum/APK HTTP connections are disconnected on pause, its active task and partial APK are cancelled/removed, and hashing/stream reads check interruption. A fully validated APK that finishes at the lifecycle boundary is deferred through the existing pending-install preference until the launcher next resumes; no unverified or partial file is installed.
+- The small recent-selection persistence write in onPause() is intentionally retained; it is a one-shot save, not background polling.
+
+### Validation status
+- Source changes are committed to the existing PR branch. GitHub Actions for the new head must pass before claiming a successful Android build or signed APK.
+- Unit tests and Android compilation for this lifecycle revision: PENDING HOSTED CI.
+- Runtime task/thread counts, rapid app-switch testing, HOME re-entry, and visual behavior on the Hisense TV: NOT TESTED on device. A thread-pool worker may remain idle until its configured 15-second keep-alive expires after cancellation; no task is intentionally left executing. Android may also keep the Activity process cached for fast HOME restoration. Neither behavior is a foreground service or active background job.
