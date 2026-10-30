@@ -11,7 +11,7 @@ public class TestMain {
         System.out.println("  Cinematic Android TV Launcher - Unit Test Suite ");
         System.out.println("==================================================");
 
-        int totalSuites = 8;
+        int totalSuites = 9;
         int passedSuites = 0;
 
         try {
@@ -83,6 +83,15 @@ public class TestMain {
             passedSuites++;
         } catch (Throwable t) {
             System.err.println("  [FAIL] DayGreetingPolicyTest: " + t.getMessage());
+            t.printStackTrace();
+        }
+
+        try {
+            System.out.println("9. Running WeatherAdvicePolicyTest (temperature and condition advice)...");
+            WeatherAdvicePolicyTest.runTests();
+            passedSuites++;
+        } catch (Throwable t) {
+            System.err.println("  [FAIL] WeatherAdvicePolicyTest: " + t.getMessage());
             t.printStackTrace();
         }
 
