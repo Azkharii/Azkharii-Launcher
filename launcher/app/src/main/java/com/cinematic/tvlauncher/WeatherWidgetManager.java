@@ -52,6 +52,9 @@ public final class WeatherWidgetManager {
     private static final String KEY_LAST_ATTEMPT = "weather_last_attempt_at";
     private static final String KEY_LATITUDE = "weather_cached_latitude";
     private static final String KEY_LONGITUDE = "weather_cached_longitude";
+    private static final String KEY_WEATHER_CODE = "weather_code";
+    private static final String KEY_FEELS_LIKE = "weather_feels_like";
+    private int adviceRotationIndex;
     private static final long LOCATION_MAX_AGE_MS = 60L * 60L * 1000L;
 
     private final Activity activity;
@@ -69,6 +72,14 @@ public final class WeatherWidgetManager {
     private volatile boolean weatherRequestInProgress;
     private volatile HttpURLConnection activeConnection;
     private volatile Future<?> weatherTask;
+    private final Runnable adviceRotationRunnable = () -> {
+        if (closed || paused || label == null) return;
+        adviceRotationIndex++;
+        String summary = preferences.getString(KEY_SUMMARY, null);
+        String location = preferences.getString(KEY_LOCATION, null);
+        if (summary != null && location != null) render(summary, location);
+        scheduleAdviceRotation();
+    };
 
     public WeatherWidgetManager(Activity activity, TextView label) {
         this.activity = activity;
@@ -87,6 +98,7 @@ public final class WeatherWidgetManager {
         if (closed || label == null) return;
         paused = false;
         showCachedOrPrompt();
+        scheduleAdviceRotation();
         if (!hasLocationPermission()) return;
         // Read the persisted timestamp first; a fresh cache does not even need a connectivity query.
         long lastAttempt = preferences.getLong(KEY_LAST_ATTEMPT,
@@ -139,6 +151,7 @@ public final class WeatherWidgetManager {
     /** Stop location and network work as soon as another app covers the launcher. */
     public void onPause() {
         paused = true;
+        mainHandler.removeCallbacks(adviceRotationRunnable);
         cancelPendingLocationRequest();
         Future<?> task = weatherTask;
         weatherTask = null;
@@ -324,7 +337,7 @@ public final class WeatherWidgetManager {
                             || !hasValidatedInternet()) return;
                     String query = String.format(Locale.US,
                             "https://api.open-meteo.com/v1/forecast?latitude=%.5f&longitude=%.5f"
-                                    + "&current=temperature_2m&temperature_unit=celsius&timezone=auto",
+                                    + "&current=temperature_2m,apparent_temperature,weather_code&temperature_unit=celsius&timezone=auto",
                             location.getLatitude(), location.getLongitude());
                     connection = (HttpURLConnection) new URL(query).openConnection();
                     activeConnection = connection;
@@ -346,11 +359,15 @@ public final class WeatherWidgetManager {
                     if (closed || paused || Thread.currentThread().isInterrupted()) return;
                     JSONObject current = new JSONObject(body.toString()).getJSONObject("current");
                     int temperature = (int) Math.round(current.getDouble("temperature_2m"));
+                    int feelsLike = (int) Math.round(current.optDouble("apparent_temperature", temperature));
+                    int weatherCode = current.optInt("weather_code", -1);
                     String summary = temperature + "°C";
                     String place = TextUtils.isEmpty(city) ? "Ubicación automática" : city;
                     if (closed || paused || Thread.currentThread().isInterrupted()) return;
                     preferences.edit().putString(KEY_SUMMARY, summary)
                             .putString(KEY_LOCATION, place)
+                            .putInt(KEY_WEATHER_CODE, weatherCode)
+                            .putInt(KEY_FEELS_LIKE, feelsLike)
                             .putFloat(KEY_LATITUDE, (float) location.getLatitude())
                             .putFloat(KEY_LONGITUDE, (float) location.getLongitude())
                             .putLong(KEY_UPDATED, System.currentTimeMillis()).apply();
@@ -439,8 +456,27 @@ public final class WeatherWidgetManager {
     private void render(String summary, String location) {
         if (label == null) return;
         String temperature = temperatureText(summary);
-        label.setText(temperature + "\n" + location);
-        label.setContentDescription("Clima actual: " + temperature + ". Ubicación: " + location + ". Pulsa para actualizar.");
+        int temperatureC = parseTemperature(temperature);
+        int feelsLikeC = preferences.getInt(KEY_FEELS_LIKE, temperatureC);
+        int weatherCode = preferences.getInt(KEY_WEATHER_CODE, -1);
+        String[] advice = WeatherAdvicePolicy.phrasesFor(temperatureC, feelsLikeC, weatherCode);
+        String phrase = advice[adviceRotationIndex % advice.length];
+        label.setText(temperature + " · " + phrase + "\n" + location);
+        label.setContentDescription("Clima actual: " + temperature + ". " + phrase
+                + ". Ubicación: " + location + ". Pulsa para actualizar.");
+        scheduleAdviceRotation();
+    }
+
+    private int parseTemperature(String value) {
+        if (value == null) return 20;
+        try { return Integer.parseInt(value.replace("°C", "").trim()); }
+        catch (NumberFormatException ignored) { return 20; }
+    }
+
+    private void scheduleAdviceRotation() {
+        if (closed || paused || label == null) return;
+        mainHandler.removeCallbacks(adviceRotationRunnable);
+        mainHandler.postDelayed(adviceRotationRunnable, 9000L);
     }
 
     private void showStatus(String value) {
