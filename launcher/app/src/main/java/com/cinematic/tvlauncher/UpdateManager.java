@@ -155,6 +155,7 @@ public final class UpdateManager {
             }
 
             JSONObject release=new JSONObject(readLimited(connection.getInputStream(),MAX_JSON));
+            if(shouldStop())return;
             if(release.optBoolean("draft",false)||release.optBoolean("prerelease",false)){
                 prefs.edit().putString(LAST_STATUS,"NO_STABLE_RELEASE").apply();
                 showManualStatus("No hay una versión estable pública disponible.");
@@ -210,8 +211,10 @@ public final class UpdateManager {
             // also publishes an APK.sha256 sidecar; use it as a fallback instead of silently
             // discarding an otherwise valid update notification.
             if(digest==null||!digest.matches("(?i)[0-9a-f]{64}")){
+                if(shouldStop())return;
                 digest=fetchChecksum(checksumUrl);
             }
+            if(shouldStop())return;
             if(digest==null||!digest.matches("(?i)[0-9a-f]{64}")){
                 recordCheckFailure("MISSING_APK_SHA256");
                 handler.post(()->showUnverifiedReleaseDialog(displayVersion,releaseUrl,
@@ -336,12 +339,15 @@ public final class UpdateManager {
                     output.getFD().sync();
                     if(total!=info.size)throw new IllegalStateException("Incomplete APK");
                 }
+                if(shouldStop())throw new java.io.InterruptedIOException("Launcher left foreground");
                 if(!sha256(partial).equalsIgnoreCase(info.sha256))throw new SecurityException("APK SHA-256 mismatch");
+                if(shouldStop())throw new java.io.InterruptedIOException("Launcher left foreground");
                 PackageInfo archive=activity.getPackageManager().getPackageArchiveInfo(partial.getAbsolutePath(),0);
                 if(archive==null||!BuildConfig.APPLICATION_ID.equals(archive.packageName))throw new SecurityException("APK package ID mismatch");
                 long archiveVersion=Build.VERSION.SDK_INT>=28?archive.getLongVersionCode():archive.versionCode;
                 if(archiveVersion!=info.version||!UpdateVersionPolicy.isNewer(archiveVersion,BuildConfig.VERSION_CODE))
                     throw new SecurityException("APK version does not match release tag");
+                if(shouldStop())throw new java.io.InterruptedIOException("Launcher left foreground");
                 File validated=new File(directory,APK_NAME);
                 if(validated.exists()&&!validated.delete())throw new IllegalStateException("Cannot replace cached APK");
                 if(!partial.renameTo(validated))throw new IllegalStateException("Cannot finalize validated APK");
