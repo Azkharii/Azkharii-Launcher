@@ -1664,6 +1664,22 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         if (running != null) running.cancel();
     }
 
+    /** Leave both panels at a stable endpoint if HOME is covered mid-transition. */
+    private void settleLibraryTransitionForPause() {
+        cancelLibraryTransition();
+        if (safeContainer == null || libraryOverlay == null) return;
+        if (libraryVisible) {
+            safeContainer.setTranslationY(-getTransitionHeight());
+            libraryOverlay.setTranslationY(0f);
+            libraryOverlay.setVisibility(View.VISIBLE);
+        } else {
+            safeContainer.setTranslationY(0f);
+            libraryOverlay.setTranslationY(0f);
+            libraryOverlay.setVisibility(View.GONE);
+        }
+        focusDotTransitionInProgress = false;
+    }
+
     private void finishLibraryTransition(Animator animation, boolean showing) {
         if (libraryTransitionAnimator != animation) return;
         if (showing) {
@@ -1888,6 +1904,9 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         lifecycleHandler.removeCallbacks(persistRecentSelectionRunnable);
         persistRecentSelectionRunnable.run();
         activityResumed = false;
+        settleLibraryTransitionForPause();
+        if (carouselView != null) carouselView.cancelPendingAnimation();
+        if (libraryCarousel != null) libraryCarousel.cancelPendingAnimation();
         unregisterLauncherAppsCallback();
         unregisterTimeTickReceiver();
         if (performanceHud != null) performanceHud.stop();
