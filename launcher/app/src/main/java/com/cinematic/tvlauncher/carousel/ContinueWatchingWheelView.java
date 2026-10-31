@@ -310,6 +310,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                         setVisibility(View.VISIBLE);
                         renderWheel();
                     }
+                    // Recalculate section bounds only when the visible card structure changes.
+                    if (itemsChangedListener != null) itemsChangedListener.onItemsChanged();
                 } else {
                     // Keep existing card views, focus, hardware layers and poster tasks alive.
                     // Only update provider-owned playback data and its 2dp progress strip.
@@ -319,7 +321,6 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                         updateProgressViews(current);
                     }
                 }
-                if (itemsChangedListener != null) itemsChangedListener.onItemsChanged();
             });
             } finally {
                 if (dataQueryCancellation == cancellationSignal) dataQueryCancellation = null;
