@@ -27,11 +27,19 @@ final class WeatherAdvicePolicy {
         if (weatherCode == 45 || weatherCode == 48) {
             return new String[] {"Maneja con cuidado", "Baja visibilidad", "Enciende las luces"};
         }
-        if (weatherCode == 0 && temperatureC >= 24) {
-            return new String[] {"Día soleado", "Usa protector solar", "Hidrátate"};
+        // WMO codes 0–3 are distinct: clear, mainly clear, partly cloudy, overcast.
+        // Keep each condition distinct instead of describing every code 1–3 as cloudy.
+        if (weatherCode == 0) {
+            return new String[] {"Cielo despejado", "Día soleado", "Usa protector solar"};
         }
-        if (weatherCode >= 1 && weatherCode <= 3) {
-            return new String[] {"Cielo nublado", "Lleva una chamarra", "Buen día para salir"};
+        if (weatherCode == 1) {
+            return new String[] {"Mayormente despejado", "Pocas nubes", "Buen día para salir"};
+        }
+        if (weatherCode == 2) {
+            return new String[] {"Parcialmente nublado", "Sol entre nubes", "Buen día para salir"};
+        }
+        if (weatherCode == 3) {
+            return new String[] {"Cielo nublado", "Día cubierto", "Lleva una chamarra"};
         }
         return new String[] {"Disfruta el día", "Cuídate mucho", "Clima agradable"};
     }
