@@ -19,10 +19,14 @@ public final class WeatherAdvicePolicyTest {
                 : "rain advice";
         assert WeatherAdvicePolicy.phrasesFor(23, 23, 95)[0].equals("Resguárdate")
                 : "thunderstorm safety advice";
-        assert WeatherAdvicePolicy.phrasesFor(27, 27, 0)[0].equals("Día soleado")
-                : "sunny weather advice";
-        assert WeatherAdvicePolicy.phrasesFor(22, 22, 2)[0].equals("Cielo nublado")
-                : "cloudy weather advice";
+        assert WeatherAdvicePolicy.phrasesFor(22, 22, 0)[0].equals("Cielo despejado")
+                : "clear sky must not depend on temperature";
+        assert WeatherAdvicePolicy.phrasesFor(22, 22, 1)[0].equals("Mayormente despejado")
+                : "mainly clear must not be mislabeled cloudy";
+        assert WeatherAdvicePolicy.phrasesFor(22, 22, 2)[0].equals("Parcialmente nublado")
+                : "partly cloudy must remain distinct from overcast";
+        assert WeatherAdvicePolicy.phrasesFor(22, 22, 3)[0].equals("Cielo nublado")
+                : "overcast weather advice";
         String[] phrases = WeatherAdvicePolicy.phrasesFor(38, 38, 0);
         assert phrases.length == 3 && !phrases[0].equals(phrases[1]) && !phrases[1].equals(phrases[2])
                 : "advice must rotate through distinct short phrases";
