@@ -235,3 +235,23 @@ No UI component, navigation behavior, Watch Next feature, wallpaper crossfade, o
 - Reduced the text-only weather card padding, maximum width, font size, and line spacing to use less area after removing the icon.
 - The small greeting above the digital clock uses local device time: 06:00–11:59 morning, 12:00–18:59 afternoon, 19:00–05:59 night. It is recalculated only as part of the already-existing clock/date event, which is registered only while the launcher is foregrounded. No independent timer or polling loop was added.
 - No unrelated launcher animation, wallpaper, app-discovery, Watch Next, or navigation code was changed in this pass. Hosted tests/build and physical TV verification remain pending.
+
+
+## Follow-up regression audit — 2026-10-31
+
+### Continue Watching: confirmed source-level rebuild trigger
+
+- The Watch Next provider publishes both structural card data and playback metadata. The prior comparison treated lastPlaybackPositionMillis, durationMillis, and lastEngagementTimeUtcMillis as card identity. During playback, those fields can change even when the same five titles remain in the same order.
+- Every such metadata change took the full renderWheel() path: cancel poster work, remove all child views, recreate the visible card hierarchy and hardware layers, and restart artwork/palette tasks. This is a confirmed unnecessary rebuild path. The exact frequency of provider notifications on the Hisense TV is not available from repository evidence, so it is not claimed as a device-measured explanation for the 100–160% sample.
+- The provider observer's former 200 ms trailing debounce could still execute repeated queries during a stream of notifications. The fix caps query starts at one per 1.2 seconds, retains existing card views when identity/order is unchanged, updates the progress strip in place, and notifies the Activity to recalculate section bounds only when the card structure changes.
+- Card identity still includes provider row ID, title, poster URI, resume URI, publisher package, and Watch Next type. A changed item or changed provider ordering still rebuilds the wheel, preserving correct ordering and activation behavior.
+
+### Weather: confirmed WMO category conflation
+
+- The advice policy grouped WMO weather codes 1, 2, and 3 into the same “Cielo nublado” phrase. Those codes represent mainly clear, partly cloudy, and overcast conditions respectively. This made a mostly clear/sunny sky appear as cloudy.
+- The policy now gives codes 0–3 distinct descriptions and tests each category. Existing heat, cold, rain, fog, and thunderstorm priority remains unchanged.
+
+### Validation boundary
+
+- Source-level regression paths identified and targeted in branch fix/watch-next-incremental-refresh-weather-wmo-20261031.
+- Hosted integrity/unit/build validation and physical Hisense CPU/RAM comparison are pending. No percentage improvement is claimed until the same Continue Watching navigation scene is measured on the TV.
