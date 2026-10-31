@@ -381,3 +381,11 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - Executor pools are reusable across resume; cancelling their Futures does not destroy the pool object. Their worker threads are configured with a 15-second idle keep-alive and exit when idle. A native bitmap decoder already executing inside Android's decode call may finish that single call despite thread interruption; its generation/foreground checks prevent any follow-on work or UI delivery.
 - The only deliberate onPause work retained is a one-shot persistence of the recent app selection. This is a small save operation, not recurring background activity.
 - Code head `df9ff6c66d15611d6490ce3fbb035d3b3614b6f1` passed Build workflow run #152 (`41141909284`) including unit tests, integrity checks, Debug and optimized Release/R8 compilation, APK inspection, and Debug artifact upload. Signed Release build and signature verification passed in signing workflow run #100 (`41141909280`). Debug artifact ID `13018963846`; SHA-256 of uploaded ZIP `76951a139f7eb22c306b5c8eaf541c4dfdf640f24390b3b5ff2b4cba7962a419`. No TV installation or physical remote-control test was performed.
+
+
+## Regression audit and targeted fixes — 2026-10-31
+
+- Continue Watching source audit found that playback position, duration, and last-engagement timestamp were incorrectly part of the structural equality check. Any progress/timestamp update caused a full wheel teardown/rebuild, including card hierarchy, hardware layers, and poster-task cancellation/restart.
+- Changed the equality boundary to actual card identity/order; metadata-only updates now update the existing progress strip in place. Provider refreshes are limited to one query start per 1.2 seconds, and the Activity's section/viewport callback runs only when the visible card structure changes.
+- Weather audit found WMO codes 1–3 were all labeled “Cielo nublado”. They are now distinguished as mainly clear, partly cloudy, and overcast; unit tests cover codes 0, 1, 2, and 3.
+- Validation for this branch: pending hosted CI. Physical CPU/RAM and visual verification on the Hisense TV: pending; no runtime improvement is claimed yet.
