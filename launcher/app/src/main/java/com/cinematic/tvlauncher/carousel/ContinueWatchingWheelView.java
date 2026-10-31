@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.os.CancellationSignal;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -91,7 +92,10 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             Color.rgb(85, 155, 245), Color.rgb(100, 180, 250)
     };
     private final Handler refreshHandler = new Handler(Looper.getMainLooper());
-    private final Runnable scheduledRefresh = this::refreshFromSystem;
+    private final Runnable scheduledRefresh = this::runScheduledRefresh;
+    private static final long MIN_PROVIDER_REFRESH_INTERVAL_MS = 1200L;
+    private long lastRefreshStartedAtMs;
+    private boolean refreshScheduled;
     private WatchNextRepository watchNextRepository;
     private int refreshGeneration;
     private volatile boolean hostPaused = true;
@@ -210,6 +214,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         refreshGeneration++;
         artworkGeneration.incrementAndGet();
         refreshHandler.removeCallbacks(scheduledRefresh);
+        refreshScheduled = false;
         watchNextRepository.unregisterObserver();
         cancelDataQuery();
         cancelAllArtworkTasks();
@@ -239,10 +244,18 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     }
 
     private void scheduleRefresh() {
-        if (hostPaused) return;
-        refreshHandler.removeCallbacks(scheduledRefresh);
-        // Coalesce provider notifications before one background query.
-        refreshHandler.postDelayed(scheduledRefresh, 200L);
+        if (hostPaused || refreshScheduled) return;
+        refreshScheduled = true;
+        long elapsed = lastRefreshStartedAtMs == 0L
+                ? MIN_PROVIDER_REFRESH_INTERVAL_MS
+                : SystemClock.uptimeMillis() - lastRefreshStartedAtMs;
+        long delay = Math.max(0L, MIN_PROVIDER_REFRESH_INTERVAL_MS - elapsed);
+        refreshHandler.postDelayed(scheduledRefresh, delay);
+    }
+
+    private void runScheduledRefresh() {
+        refreshScheduled = false;
+        if (!hostPaused) refreshFromSystem();
     }
 
     public View getCenterChild() {
@@ -255,6 +268,7 @@ public final class ContinueWatchingWheelView extends FrameLayout {
      */
     public void refreshFromSystem() {
         if (hostPaused) return;
+        lastRefreshStartedAtMs = SystemClock.uptimeMillis();
         long previousId = items.isEmpty()
                 ? -1L : items.get(Math.floorMod(selectedIndex, items.size())).id;
         cancelDataQuery();
@@ -296,6 +310,14 @@ public final class ContinueWatchingWheelView extends FrameLayout {
                         setVisibility(View.VISIBLE);
                         renderWheel();
                     }
+                } else {
+                    // Keep existing card views, focus, hardware layers and poster tasks alive.
+                    // Only update provider-owned playback data and its 2dp progress strip.
+                    for (int i = 0; i < items.size(); i++) {
+                        MediaItem current = items.get(i);
+                        current.updatePlaybackData(result.get(i));
+                        updateProgressViews(current);
+                    }
                 }
                 if (itemsChangedListener != null) itemsChangedListener.onItemsChanged();
             });
@@ -314,13 +336,15 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         for (int i = 0; i < items.size(); i++) {
             MediaItem oldItem = items.get(i);
             MediaItem newItem = nextItems.get(i);
+            // Playback position and engagement timestamps change while a title is playing.
+            // They are live metadata, not card identity: rebuilding the wheel for each tick
+            // tears down five hardware layers and restarts artwork work unnecessarily.
             if (oldItem.id != newItem.id
                     || !oldItem.title.equals(newItem.title)
                     || !java.util.Objects.equals(oldItem.intentUri, newItem.intentUri)
                     || !java.util.Objects.equals(oldItem.posterArtUri, newItem.posterArtUri)
-                    || oldItem.lastPlaybackPositionMillis != newItem.lastPlaybackPositionMillis
-                    || oldItem.durationMillis != newItem.durationMillis
-                    || oldItem.lastSeen != newItem.lastSeen) return false;
+                    || !java.util.Objects.equals(oldItem.entry.getPackageName(), newItem.entry.getPackageName())
+                    || oldItem.entry.getWatchNextType() != newItem.entry.getWatchNextType()) return false;
         }
         return true;
     }
@@ -632,27 +656,24 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         titleScrimLp.setMargins(dp(2), 0, dp(2), dp(2));
         surface.addView(titleScrim, titleScrimLp);
 
-        int progressPercent = WatchNextEntryPolicy.progressPercent(
-                item.lastPlaybackPositionMillis, item.durationMillis);
-        if (progressPercent >= 0 && progressPercent < 100) {
-            View progressTrack = new View(getContext());
-            progressTrack.setBackgroundColor(0x77070B12);
-            LayoutParams trackLp = new LayoutParams(LayoutParams.MATCH_PARENT, dp(2), Gravity.BOTTOM);
-            trackLp.setMargins(dp(4), 0, dp(4), dp(20));
-            surface.addView(progressTrack, trackLp);
+        View progressTrack = new View(getContext());
+        progressTrack.setBackgroundColor(0x77070B12);
+        LayoutParams trackLp = new LayoutParams(LayoutParams.MATCH_PARENT, dp(2), Gravity.BOTTOM);
+        trackLp.setMargins(dp(4), 0, dp(4), dp(20));
+        surface.addView(progressTrack, trackLp);
 
-            View progressFill = new View(getContext());
-            GradientDrawable progressBackground = new GradientDrawable();
-            progressBackground.setColor(0xFFE3F8FF);
-            progressBackground.setCornerRadius(dp(2));
-            progressFill.setBackground(progressBackground);
-            LayoutParams progressLp = new LayoutParams(
-                    Math.max(dp(2), Math.round((cardWidth - dp(8)) * progressPercent / 100f)),
-                    dp(2), Gravity.BOTTOM | Gravity.LEFT);
-            progressLp.leftMargin = dp(4);
-            progressLp.bottomMargin = dp(20);
-            surface.addView(progressFill, progressLp);
-        }
+        View progressFill = new View(getContext());
+        GradientDrawable progressBackground = new GradientDrawable();
+        progressBackground.setColor(0xFFE3F8FF);
+        progressBackground.setCornerRadius(dp(2));
+        progressFill.setBackground(progressBackground);
+        LayoutParams progressLp = new LayoutParams(dp(2), dp(2), Gravity.BOTTOM | Gravity.LEFT);
+        progressLp.leftMargin = dp(4);
+        progressLp.bottomMargin = dp(20);
+        surface.addView(progressFill, progressLp);
+        item.progressTrack = progressTrack;
+        item.progressFill = progressFill;
+        updateProgressViews(item);
 
         TextView title = new TextView(getContext());
         title.setText(item.title);
@@ -704,6 +725,24 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         outer.setNextFocusUpId(outer.getId());
         outer.setNextFocusDownId(outer.getId());
         return outer;
+    }
+
+    private void updateProgressViews(MediaItem item) {
+        if (item == null || item.progressTrack == null || item.progressFill == null) return;
+        int progress = WatchNextEntryPolicy.progressPercent(
+                item.lastPlaybackPositionMillis, item.durationMillis);
+        boolean visible = progress >= 0 && progress < 100;
+        int visibility = visible ? View.VISIBLE : View.GONE;
+        if (item.progressTrack.getVisibility() != visibility) item.progressTrack.setVisibility(visibility);
+        if (item.progressFill.getVisibility() != visibility) item.progressFill.setVisibility(visibility);
+        if (!visible) return;
+
+        int width = Math.max(dp(2), Math.round((dp(88) - dp(8)) * progress / 100f));
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) item.progressFill.getLayoutParams();
+        if (params.width != width) {
+            params.width = width;
+            item.progressFill.setLayoutParams(params);
+        }
     }
 
     private void applySurfaceStyle(View surface, MediaItem item,
@@ -990,16 +1029,18 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     }
 
     private static final class MediaItem {
-        final WatchNextRepository.Entry entry;
+        WatchNextRepository.Entry entry;
         final long id;
         final String title;
-        final long lastSeen;
+        long lastSeen;
         final String intentUri;
         final Uri posterArtUri;
+        View progressTrack;
+        View progressFill;
         volatile int accentColor = DEFAULT_ACCENT;
         volatile int[] accentPalette = DEFAULT_PALETTE;
-        final long lastPlaybackPositionMillis;
-        final long durationMillis;
+        long lastPlaybackPositionMillis;
+        long durationMillis;
 
         MediaItem(WatchNextRepository.Entry entry) {
             this.entry = entry;
@@ -1010,6 +1051,13 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             this.posterArtUri = entry.getPosterArtUri();
             this.lastPlaybackPositionMillis = entry.getLastPlaybackPositionMillis();
             this.durationMillis = entry.getDurationMillis();
+        }
+
+        void updatePlaybackData(MediaItem updated) {
+            entry = updated.entry;
+            lastSeen = updated.lastSeen;
+            lastPlaybackPositionMillis = updated.lastPlaybackPositionMillis;
+            durationMillis = updated.durationMillis;
         }
     }
 }
