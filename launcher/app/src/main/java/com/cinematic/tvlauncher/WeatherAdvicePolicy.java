@@ -10,8 +10,14 @@ final class WeatherAdvicePolicy {
         if (perceivedHeat >= 42) return new String[] {"Llamen a Dios", "Toma agua", "Busca sombra"};
         if (perceivedHeat >= 38) return new String[] {"Calor intenso", "Enciende el ventilador", "Hidrátate"};
         if (perceivedHeat >= 32) return new String[] {"Toma agua", "Usa ropa ligera", "Busca sombra"};
-        if (perceivedCold <= 8) return new String[] {"Abrígate bien", "Evita el frío", "Bebida caliente"};
-        if (perceivedCold <= 15) return new String[] {"Lleva chamarra", "Abrígate", "Tarde fresca"};
+        if (perceivedCold <= 8) {
+            return new String[] {"Abrígate bien", "Evita el frío",
+                    isDay ? "Bebida caliente" : "Noche fría"};
+        }
+        if (perceivedCold <= 15) {
+            return new String[] {"Lleva chamarra", "Abrígate",
+                    isDay ? "Tarde fresca" : "Noche fresca"};
+        }
 
         if (weatherCode == 95 || weatherCode == 96 || weatherCode == 99) {
             return new String[] {"Resguárdate", "Evita zonas abiertas", "Tormenta cercana"};
@@ -48,6 +54,8 @@ final class WeatherAdvicePolicy {
             return new String[] {"Cielo nublado", isDay ? "Día cubierto" : "Noche cubierta",
                     "Lleva una chamarra"};
         }
-        return new String[] {"Disfruta el día", "Cuídate mucho", "Clima agradable"};
+        return isDay
+                ? new String[] {"Disfruta el día", "Cuídate mucho", "Clima agradable"}
+                : new String[] {"Disfruta la noche", "Cuídate mucho", "Clima agradable"};
     }
 }
