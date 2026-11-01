@@ -455,7 +455,7 @@
             android:paddingTop="@dimen/safe_margin_vertical"
             android:paddingBottom="@dimen/safe_margin_vertical">
 
-            <TextView
+            <com.cinematic.tvlauncher.ui.LiquidGlassTextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/app_library_title"
