@@ -115,6 +115,11 @@ public class CinematicBackgroundManager {
     }
 
     public void loadLocalBackgrounds() {
+        loadLocalBackgrounds(null);
+    }
+
+    /** Reloads managed images and optionally applies the first newly imported selection. */
+    public void loadLocalBackgrounds(File preferredBackground) {
         if (destroyed) return;
         try {
             decodeExecutor.execute(() -> {
@@ -141,7 +146,11 @@ public class CinematicBackgroundManager {
                 // Do not make the first real wallpaper wait through the normal 10-second
                 // rotation interval. Decode it immediately after discovery, off the UI thread.
                 mainHandler.post(() -> {
-                    if (isVisible && !destroyed && !hasRealWallpaperLoaded && !queue.isEmpty()) {
+                    if (!isVisible || destroyed) return;
+                    if (preferredBackground != null && preferredBackground.isFile()
+                            && images.contains(preferredBackground)) {
+                        showWallpaper(preferredBackground);
+                    } else if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
                         rotateToNext();
                     } else {
                         scheduleRotationIfAvailable();
