@@ -20,6 +20,7 @@ import com.cinematic.tvlauncher.R;
 import com.cinematic.tvlauncher.config.LauncherConfig;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -40,7 +41,10 @@ import java.nio.charset.StandardCharsets;
  */
 public class CinematicBackgroundManager {
     private static final String TAG = "CinematicBackgroundMgr";
-    private static final String WALLPAPER_PREVIEW_CACHE_DIR = "wallpaper-preview-v1";
+    private static final String WALLPAPER_PREVIEW_CACHE_DIR = "wallpaper-preview-v2";
+    private static final long MAX_WALLPAPER_PREVIEW_CACHE_BYTES = 48L * 1024L * 1024L;
+    private static final int MAX_WALLPAPER_DECODE_WIDTH = 2560;
+    private static final int MAX_WALLPAPER_DECODE_HEIGHT = 1440;
 
     private final Activity activity;
     private final ImageView imageViewA;
@@ -71,7 +75,7 @@ public class CinematicBackgroundManager {
             rotateToNext();
             // Keep rotation event-driven: do not wake the main looper when no wallpapers exist.
             // With one photo, displaying it once is enough; re-decoding and crossfading
-            // the same bitmap every 10 seconds produces no visual change.
+            // the same bitmap every 20 seconds produces no visual change.
             if (isVisible && !destroyed && queue.size() > 1) {
                 mainHandler.postDelayed(this, config.getRotationIntervalSec() * 1000L);
             }
@@ -148,7 +152,7 @@ public class CinematicBackgroundManager {
                     queue.markDisplayed(currentWallpaperFile);
                 }
                 Log.i(TAG, "Loaded " + images.size() + " local background images");
-                // Do not make the first real wallpaper wait through the normal 10-second
+                // Do not make the first real wallpaper wait through the normal 20-second
                 // rotation interval. Decode it immediately after discovery, off the UI thread.
                 mainHandler.post(() -> {
                     if (!isVisible || destroyed
@@ -227,16 +231,34 @@ public class CinematicBackgroundManager {
         }
     }
 
+    /** Cancels an in-flight crossfade and restores the last fully displayed layer. */
+    private void cancelCrossfadeAnimation() {
+        AnimatorSet running = crossfadeAnimator;
+        if (running == null) return;
+        // Clear identity before cancel(): Animator.cancel() also dispatches onAnimationEnd().
+        crossfadeAnimator = null;
+        ImageView front = isFrontA ? imageViewA : imageViewB;
+        ImageView back = isFrontA ? imageViewB : imageViewA;
+        // applyCrossfade() stages the incoming file before its fade finishes; on cancellation,
+        // the outgoing/front layer remains the one actually visible to the user.
+        currentWallpaperFile = isFrontA ? wallpaperFileA : wallpaperFileB;
+        running.cancel();
+        front.setAlpha(1f);
+        front.setScaleX(1f);
+        front.setScaleY(1f);
+        clearWallpaperLayer(back, false);
+        back.setAlpha(0f);
+        back.setScaleX(1f);
+        back.setScaleY(1f);
+    }
+
     /** Starts a worker decode and crossfades to an explicitly selected app-managed photo. */
     public boolean showWallpaper(File file) {
         if (file == null || !isSupportedImage(file) || destroyed || !isVisible) return false;
         mainHandler.removeCallbacks(rotationRunnable);
         queue.markDisplayed(file);
         cancelPendingDecode();
-        if (crossfadeAnimator != null) {
-            crossfadeAnimator.cancel();
-            crossfadeAnimator = null;
-        }
+        cancelCrossfadeAnimation();
         pendingPreferredBackground = file;
         long generation = workGeneration.incrementAndGet();
         try {
@@ -288,10 +310,7 @@ public class CinematicBackgroundManager {
                 // a valid default frame. This avoids retaining a removed full-resolution image.
                 workGeneration.incrementAndGet();
                 cancelPendingDecode();
-                if (crossfadeAnimator != null) {
-                    crossfadeAnimator.cancel();
-                    crossfadeAnimator = null;
-                }
+                cancelCrossfadeAnimation();
                 currentWallpaperFile = null;
                 hasRealWallpaperLoaded = false;
                 isFrontA = true;
@@ -336,8 +355,7 @@ public class CinematicBackgroundManager {
         workGeneration.incrementAndGet();
         mainHandler.removeCallbacks(rotationRunnable);
         cancelPendingDecode();
-        if (crossfadeAnimator != null) crossfadeAnimator.cancel();
-
+        cancelCrossfadeAnimation();
     }
 
     public void onDestroy() {
@@ -412,6 +430,8 @@ public class CinematicBackgroundManager {
         crossfade.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationEnd(Animator animation) {
+                // A cancelled/stale animator must not commit a layer swap after HOME pauses.
+                if (crossfadeAnimator != crossfade) return;
                 front.setAlpha(1f);
                 front.setScaleX(1f);
                 front.setScaleY(1f);
@@ -440,12 +460,16 @@ public class CinematicBackgroundManager {
      */
     private int wallpaperTargetWidth() {
         DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
-        return metrics.widthPixels > 0 ? metrics.widthPixels : 1920;
+        int width = metrics.widthPixels > 0 ? metrics.widthPixels : 1920;
+        // 1440p is a practical upper bound for a background surface on 4K TVs: it avoids
+        // decoding 8.3 MP frames when the UI does not need pixel-perfect 4K artwork.
+        return Math.min(width, MAX_WALLPAPER_DECODE_WIDTH);
     }
 
     private int wallpaperTargetHeight() {
         DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
-        return metrics.heightPixels > 0 ? metrics.heightPixels : 1080;
+        int height = metrics.heightPixels > 0 ? metrics.heightPixels : 1080;
+        return Math.min(height, MAX_WALLPAPER_DECODE_HEIGHT);
     }
 
     private File wallpaperPreviewCacheFile(File source, int targetWidth, int targetHeight) {
@@ -453,14 +477,14 @@ public class CinematicBackgroundManager {
         try {
             File cacheDirectory = new File(activity.getCacheDir(), WALLPAPER_PREVIEW_CACHE_DIR);
             String identity = source.getCanonicalPath() + "|" + source.length() + "|"
-                    + source.lastModified() + "|" + targetWidth + "x" + targetHeight + "|v1";
+                    + source.lastModified() + "|" + targetWidth + "x" + targetHeight + "|v2";
             byte[] digest = MessageDigest.getInstance("SHA-256")
                     .digest(identity.getBytes(StandardCharsets.UTF_8));
             StringBuilder key = new StringBuilder(digest.length * 2);
             for (byte value : digest) {
                 key.append(String.format(java.util.Locale.ROOT, "%02x", value & 0xff));
             }
-            return new File(cacheDirectory, key + ".jpg");
+            return new File(cacheDirectory, key + ".webp");
         } catch (Exception e) {
             Log.w(TAG, "Could not identify wallpaper preview cache entry", e);
             return null;
@@ -470,8 +494,8 @@ public class CinematicBackgroundManager {
     private Bitmap decodeCachedWallpaperPreview(File previewFile) {
         if (previewFile == null || !previewFile.isFile() || previewFile.length() <= 0) return null;
         BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inPreferredConfig = Bitmap.Config.RGB_565;
-        options.inDither = true;
+        // WebP previews preserve alpha for transparent PNG/WebP wallpapers.
+        options.inPreferredConfig = Bitmap.Config.ARGB_8888;
         Bitmap cached = BitmapFactory.decodeFile(previewFile.getAbsolutePath(), options);
         if (cached != null) previewFile.setLastModified(System.currentTimeMillis());
         return cached;
@@ -509,9 +533,10 @@ public class CinematicBackgroundManager {
             if (cached != null) return cached;
             if (previewFile != null && previewFile.exists()) previewFile.delete();
 
+            Bitmap decoded;
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                 ImageDecoder.Source source = ImageDecoder.createSource(file);
-                return ImageDecoder.decodeBitmap(source, (decoder, info, sourceIgnored) -> {
+                decoded = ImageDecoder.decodeBitmap(source, (decoder, info, sourceIgnored) -> {
                     if (Thread.currentThread().isInterrupted() || destroyed) {
                         decoder.setTargetSize(1, 1);
                         return;
@@ -527,20 +552,82 @@ public class CinematicBackgroundManager {
                     decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
                     decoder.setMemorySizePolicy(ImageDecoder.MEMORY_POLICY_LOW_RAM);
                 });
+            } else {
+                BitmapFactory.Options options = new BitmapFactory.Options();
+                options.inJustDecodeBounds = true;
+                BitmapFactory.decodeFile(file.getAbsolutePath(), options);
+                if (Thread.currentThread().isInterrupted() || destroyed) return null;
+                options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight);
+                options.inJustDecodeBounds = false;
+                options.inPreferredConfig = Bitmap.Config.ARGB_8888;
+                options.inDither = true;
+                decoded = BitmapFactory.decodeFile(file.getAbsolutePath(), options);
             }
 
-            BitmapFactory.Options options = new BitmapFactory.Options();
-            options.inJustDecodeBounds = true;
-            BitmapFactory.decodeFile(file.getAbsolutePath(), options);
-            if (Thread.currentThread().isInterrupted() || destroyed) return null;
-            options.inSampleSize = calculateInSampleSize(options, reqWidth, reqHeight);
-            options.inJustDecodeBounds = false;
-            options.inPreferredConfig = Bitmap.Config.RGB_565;
-            options.inDither = true;
-            return BitmapFactory.decodeFile(file.getAbsolutePath(), options);
+            // The first decode is cached on the same worker. Later rotations decode only this
+            // viewport-sized WebP derivative instead of repeatedly parsing the original photo.
+            cacheWallpaperPreview(decoded, previewFile);
+            return decoded;
         } catch (Exception e) {
             Log.e(TAG, "Failed to decode background image: " + file.getName(), e);
             return null;
+        }
+    }
+
+    private void cacheWallpaperPreview(Bitmap bitmap, File previewFile) {
+        if (bitmap == null || previewFile == null || previewFile.isFile()
+                || Thread.currentThread().isInterrupted() || destroyed) return;
+        File directory = previewFile.getParentFile();
+        if (directory == null || (!directory.isDirectory() && !directory.mkdirs())) return;
+
+        File temporaryFile = new File(directory,
+                previewFile.getName() + ".tmp-" + Thread.currentThread().getId());
+        try (FileOutputStream output = new FileOutputStream(temporaryFile)) {
+            if (!bitmap.compress(Bitmap.CompressFormat.WEBP, 86, output)) {
+                temporaryFile.delete();
+                return;
+            }
+            output.flush();
+        } catch (Exception e) {
+            temporaryFile.delete();
+            Log.d(TAG, "Wallpaper preview cache write skipped", e);
+            return;
+        }
+
+        if (Thread.currentThread().isInterrupted() || destroyed) {
+            temporaryFile.delete();
+            return;
+        }
+        if (previewFile.exists() && !previewFile.delete()) {
+            temporaryFile.delete();
+            return;
+        }
+        if (!temporaryFile.renameTo(previewFile)) {
+            temporaryFile.delete();
+            return;
+        }
+        trimWallpaperPreviewCache(directory, previewFile);
+    }
+
+    /** Bounds the on-disk derivative cache so imported photos cannot grow it indefinitely. */
+    private void trimWallpaperPreviewCache(File directory, File newestFile) {
+        File[] files = directory.listFiles((parent, name) -> name.endsWith(".webp"));
+        if (files == null || files.length < 2) return;
+        List<File> oldestFirst = new ArrayList<>();
+        long totalBytes = 0L;
+        for (File file : files) {
+            if (file.isFile()) {
+                oldestFirst.add(file);
+                totalBytes += file.length();
+            }
+        }
+        if (totalBytes <= MAX_WALLPAPER_PREVIEW_CACHE_BYTES) return;
+        Collections.sort(oldestFirst, Comparator.comparingLong(File::lastModified));
+        for (File file : oldestFirst) {
+            if (totalBytes <= MAX_WALLPAPER_PREVIEW_CACHE_BYTES) break;
+            if (file.equals(newestFile)) continue;
+            long length = file.length();
+            if (file.delete()) totalBytes -= length;
         }
     }
 

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Cinematic Background & Google Photos Configuration (Annex C.2, C.3) -->
-    <integer name="background_rotation_interval_sec">30</integer>
+    <integer name="background_rotation_interval_sec">20</integer>
     <!-- Shorter fullscreen transition reduces the time both large wallpaper layers are composed. -->
     <integer name="background_crossfade_duration_ms">160</integer>
 
