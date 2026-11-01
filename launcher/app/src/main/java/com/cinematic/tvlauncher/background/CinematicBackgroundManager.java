@@ -545,7 +545,8 @@ public class CinematicBackgroundManager {
         ExifInterface exif = new ExifInterface(file.getAbsolutePath());
         int orientation = exif.getAttributeInt(
                 ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED);
-        if (orientation != ExifInterface.ORIENTATION_NORMAL) return null;
+        if (orientation != ExifInterface.ORIENTATION_NORMAL
+                && orientation != ExifInterface.ORIENTATION_UNDEFINED) return null;
 
         BitmapRegionDecoder regionDecoder = null;
         try {
