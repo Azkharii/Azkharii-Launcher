@@ -515,28 +515,6 @@ public class CinematicBackgroundManager {
      * Decode close to the TV viewport. Reuse a validated on-disk derivative after first display;
      * otherwise resize during decode on API 28+, with a sampled BitmapFactory fallback on API 26–27.
      */
-    /** Center-crop the source rectangle to the TV viewport aspect ratio without upscaling. */
-    private static Rect centerCropRect(int sourceWidth, int sourceHeight,
-                                       int targetWidth, int targetHeight) {
-        int left = 0;
-        int top = 0;
-        int right = Math.max(1, sourceWidth);
-        int bottom = Math.max(1, sourceHeight);
-        double targetAspect = Math.max(1, targetWidth) / (double) Math.max(1, targetHeight);
-        double sourceAspect = right / (double) bottom;
-
-        if (sourceAspect > targetAspect) {
-            int cropWidth = Math.max(1, (int) Math.round(bottom * targetAspect));
-            left = Math.max(0, (right - cropWidth) / 2);
-            right = Math.min(sourceWidth, left + cropWidth);
-        } else if (sourceAspect < targetAspect) {
-            int cropHeight = Math.max(1, (int) Math.round(right / targetAspect));
-            top = Math.max(0, (bottom - cropHeight) / 2);
-            bottom = Math.min(sourceHeight, top + cropHeight);
-        }
-        return new Rect(left, top, right, bottom);
-    }
-
     /**
      * Decode only the pixels required by the TV viewport. Do not re-encode the result here:
      * compression during rotation was adding a second CPU-heavy pass to every cache miss.
@@ -558,7 +536,10 @@ public class CinematicBackgroundManager {
                     }
                     int sourceWidth = Math.max(1, info.getSize().getWidth());
                     int sourceHeight = Math.max(1, info.getSize().getHeight());
-                    Rect crop = centerCropRect(sourceWidth, sourceHeight, reqWidth, reqHeight);
+                    int[] cropBounds = WallpaperCropPolicy.centerCropRect(
+                            sourceWidth, sourceHeight, reqWidth, reqHeight);
+                    Rect crop = new Rect(cropBounds[0], cropBounds[1],
+                            cropBounds[2], cropBounds[3]);
                     int cropWidth = Math.max(1, crop.width());
                     int cropHeight = Math.max(1, crop.height());
                     // Crop to the same 16:9-style viewport that ImageView.CENTER_CROP displays.
