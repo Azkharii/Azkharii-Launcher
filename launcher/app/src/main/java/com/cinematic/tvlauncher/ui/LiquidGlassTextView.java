@@ -47,7 +47,7 @@ public final class LiquidGlassTextView extends TextView {
 
         // A faint inner tint prevents the outlined glyphs from disappearing on bright images.
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.argb(78, 236, 248, 255));
+        paint.setColor(Color.argb(36, 236, 248, 255));
         paint.setShadowLayer(dp(3f), 0f, dp(1f), 0xB0000000);
         super.onDraw(canvas);
 
