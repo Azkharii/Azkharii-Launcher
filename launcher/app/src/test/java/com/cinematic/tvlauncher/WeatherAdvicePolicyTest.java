@@ -11,6 +11,8 @@ public final class WeatherAdvicePolicyTest {
                 : "apparent extreme heat must trigger the special phrase";
         assert WeatherAdvicePolicy.phrasesFor(38, 38, 0, true)[0].equals("Calor intenso")
                 : "intense heat advice";
+        assert WeatherAdvicePolicy.phrasesFor(34, 34, 0, false)[2].equals("Mantén ventilación")
+                : "warm nighttime advice must not recommend finding shade";
         assert WeatherAdvicePolicy.phrasesFor(33, 34, 1, true)[0].equals("Toma agua")
                 : "warm weather hydration advice";
         assert WeatherAdvicePolicy.phrasesFor(12, 10, 0, true)[0].equals("Lleva chamarra")
