@@ -15,6 +15,10 @@ public final class WeatherAdvicePolicyTest {
                 : "warm weather hydration advice";
         assert WeatherAdvicePolicy.phrasesFor(12, 10, 0, true)[0].equals("Lleva chamarra")
                 : "cold weather advice";
+        assert WeatherAdvicePolicy.phrasesFor(12, 10, 0, false)[2].equals("Noche fresca")
+                : "cold advice must not refer to the afternoon at night";
+        assert WeatherAdvicePolicy.phrasesFor(22, 22, -1, false)[0].equals("Disfruta la noche")
+                : "unknown conditions must use night wording after dark";
         assert WeatherAdvicePolicy.phrasesFor(23, 23, 61, true)[0].equals("Lleva paraguas")
                 : "rain advice";
         assert WeatherAdvicePolicy.phrasesFor(23, 23, 95, true)[0].equals("Resguárdate")
