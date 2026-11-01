@@ -153,7 +153,25 @@ public class CinematicBackgroundManager {
                     if (preferred != null && preferred.isFile() && images.contains(preferred)) {
                         pendingPreferredBackground = null;
                         showWallpaper(preferred);
-                    } else if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
+                    } else {
+                        if (preferred != null && !preferred.isFile()) pendingPreferredBackground = null;
+                        if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
+                            rotateToNext();
+                        } else {
+                            scheduleRotationIfAvailable();
+                        }
+                    }
+                });
+            } catch (Exception e) {
+                Log.w(TAG, "Error discovering local background photos", e);
+            }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // Activity is already being destroyed.
+        }
+    }
+
+    private void addImagesFromDirectory(File directory, List<File> images) {
                         rotateToNext();
                     } else {
                         scheduleRotationIfAvailable();
