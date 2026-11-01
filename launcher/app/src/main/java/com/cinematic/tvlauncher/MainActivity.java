@@ -1136,7 +1136,6 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         }
     }
 
-    /** Smoothly blend wallpaper-derived accents; a newer wallpaper continues from the current tint. */
     /**
      * Smoothly blend wallpaper-derived accents with bounded redraw work.
      * HSV endpoints are computed once and UI properties update at most 30 times/second.
