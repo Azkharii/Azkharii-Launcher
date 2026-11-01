@@ -289,7 +289,8 @@ public final class WeatherWidgetManager {
     }
 
     private void requestLocation() {
-        if (closed || paused || locationRequestInProgress || !hasLocationPermission()) return;
+        if (closed || paused || locationRequestInProgress || weatherRequestInProgress
+                || !hasLocationPermission()) return;
         if (!hasValidatedInternet()) {
             showCachedOrUnavailable();
             return;
