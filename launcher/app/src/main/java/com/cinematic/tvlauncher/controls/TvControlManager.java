@@ -791,6 +791,9 @@ public class TvControlManager {
                         Toast.makeText(activity, "No se pudieron importar " + failedCount
                                 + " imagen(es). Se conservaron para reintentar al volver al launcher.",
                                 Toast.LENGTH_LONG).show();
+                    } else {
+                        // A second picker result may have arrived while this batch was running.
+                        startPendingBackgroundImports();
                     }
                 });
             }, null);
