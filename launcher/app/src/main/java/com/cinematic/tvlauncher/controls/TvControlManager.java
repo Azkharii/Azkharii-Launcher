@@ -18,8 +18,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.Locale;
 import android.content.Intent;
 import android.content.ActivityNotFoundException;
@@ -746,6 +744,7 @@ public class TvControlManager {
         try {
             FutureTask<Void> importTask = new FutureTask<>(() -> {
                 List<File> importedFiles = new ArrayList<>();
+                List<Uri> completedUris = new ArrayList<>();
                 int failed = 0;
                 try {
                     File directory = new File(activity.getFilesDir(), "CinematicBackgrounds");
@@ -756,8 +755,12 @@ public class TvControlManager {
                         if (managerPaused || importGeneration != backgroundImportGeneration
                                 || Thread.currentThread().isInterrupted()) return;
                         File imported = copyImage(uri, directory);
-                        if (imported != null) importedFiles.add(imported);
-                        else failed++;
+                        if (imported != null) {
+                            importedFiles.add(imported);
+                            completedUris.add(uri);
+                        } else {
+                            failed++;
+                        }
                     }
                 } catch (Exception e) {
                     Log.w(TAG, "Selected wallpaper import did not complete", e);
@@ -770,7 +773,7 @@ public class TvControlManager {
                 final int failedCount = failed;
                 networkHandler.post(() -> {
                     if (managerPaused || importGeneration != backgroundImportGeneration) return;
-                    pendingBackgroundImports.removeAll(selected);
+                    pendingBackgroundImports.removeAll(completedUris);
                     backgroundImportInProgress = false;
 
                     if (!importedFiles.isEmpty()) {
@@ -787,7 +790,7 @@ public class TvControlManager {
                     }
                     if (failedCount > 0) {
                         Toast.makeText(activity, "No se pudieron importar " + failedCount
-                                + " imagen(es). Vuelve a seleccionarlas para reintentarlo.",
+                                + " imagen(es). Se conservaron para reintentar al volver al launcher.",
                                 Toast.LENGTH_LONG).show();
                     }
                 });
@@ -804,7 +807,6 @@ public class TvControlManager {
     }
 
     private File copyImage(Uri uri, File directory) {
-        String stamp = new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(new Date());
         String mimeType = activity.getContentResolver().getType(uri);
         String extension = "jpg";
         if ("image/png".equalsIgnoreCase(mimeType)) extension = "png";
