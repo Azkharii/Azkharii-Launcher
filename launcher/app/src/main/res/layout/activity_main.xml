@@ -462,11 +462,7 @@
                 android:textColor="@color/text_primary"
                 android:textSize="30sp"
                 android:fontFamily="sans-serif-black"
-                android:textStyle="bold"
-                android:shadowColor="#C0000000"
-                android:shadowDx="1"
-                android:shadowDy="2"
-                android:shadowRadius="4" />
+                android:textStyle="bold" />
 
             <Space
                 android:layout_width="match_parent"
