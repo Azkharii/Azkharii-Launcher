@@ -16,17 +16,20 @@ import android.widget.TextView;
 
 
 /**
- * Tiny foreground-only diagnostic HUD. Samples process CPU and PSS every three seconds;
- * it is stopped whenever the launcher is not in the foreground.
+ * Tiny foreground-only diagnostic HUD. Samples process CPU every three seconds and PSS
+ * every fifteen seconds; it is stopped whenever the launcher is not in the foreground.
  */
 final class PerformanceHud {
     private static final long SAMPLE_INTERVAL_MS = 3000L;
+    private static final long PSS_SAMPLE_INTERVAL_MS = 15_000L;
 
     private final Activity activity;
     private final TextView label;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private long previousCpuMs = -1L;
     private long previousElapsedMs = -1L;
+    private long lastPssSampleElapsedMs = -1L;
+    private int lastPssKb = -1;
     private boolean running;
     private boolean closed;
 
@@ -77,6 +80,8 @@ final class PerformanceHud {
         running = true;
         previousCpuMs = Process.getElapsedCpuTime();
         previousElapsedMs = SystemClock.elapsedRealtime();
+        lastPssSampleElapsedMs = -1L;
+        lastPssKb = -1;
         sampleAndRender();
         handler.removeCallbacks(sampler);
         handler.postDelayed(sampler, SAMPLE_INTERVAL_MS);
@@ -87,6 +92,8 @@ final class PerformanceHud {
         handler.removeCallbacks(sampler);
         previousCpuMs = -1L;
         previousElapsedMs = -1L;
+        lastPssSampleElapsedMs = -1L;
+        lastPssKb = -1;
         // Hide the entire diagnostic HUD outside the launcher home surface; no stale
         // RAM number should appear to be a continuing measurement while sampling is stopped.
         label.setVisibility(View.GONE);
@@ -112,18 +119,21 @@ final class PerformanceHud {
         int cpuPercent = interval > 0L && cpuDelta >= 0L
                 ? Math.max(0, Math.round(cpuDelta * 100f / interval)) : -1;
 
-        int pssKb = -1;
-        try {
-            Debug.MemoryInfo memoryInfo = new Debug.MemoryInfo();
-            Debug.getMemoryInfo(memoryInfo);
-            pssKb = memoryInfo.getTotalPss();
-        } catch (RuntimeException ignored) {
-            // Keep the HUD alive if this firmware does not provide process memory details.
+        if (lastPssSampleElapsedMs < 0L
+                || elapsed - lastPssSampleElapsedMs >= PSS_SAMPLE_INTERVAL_MS) {
+            try {
+                Debug.MemoryInfo memoryInfo = new Debug.MemoryInfo();
+                Debug.getMemoryInfo(memoryInfo);
+                lastPssKb = memoryInfo.getTotalPss();
+            } catch (RuntimeException ignored) {
+                // Keep the HUD alive if this firmware does not provide process memory details.
+            }
+            lastPssSampleElapsedMs = elapsed;
         }
 
         StringBuilder text = new StringBuilder(40);
         text.append("RAM ");
-        if (pssKb >= 0) text.append(Math.round(pssKb / 1024f)).append(" MiB");
+        if (lastPssKb >= 0) text.append(Math.round(lastPssKb / 1024f)).append(" MiB");
         else text.append("-- MiB");
         text.append('\n').append("CPU ");
         if (cpuPercent >= 0) text.append(cpuPercent).append('%');

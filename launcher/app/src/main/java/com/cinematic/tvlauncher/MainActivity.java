@@ -29,6 +29,7 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.animation.DecelerateInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -163,6 +164,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     // Keep the root-level navigation marker still while the two library panels move.
     private boolean focusDotTransitionInProgress;
     private AnimatorSet libraryTransitionAnimator;
+    private ViewTreeObserver.OnPreDrawListener focusDotPreDrawListener;
     private boolean watchNextPermissionRequestInFlight = false;
     private boolean optionsOpenedFromPinnedWheel = false;
     private int optionsPinnedIndex = -1;
@@ -1660,6 +1662,65 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         return height > 0 ? height : getResources().getDisplayMetrics().heightPixels;
     }
 
+    private void cancelPendingFocusDotUpdate() {
+        ViewTreeObserver.OnPreDrawListener pending = focusDotPreDrawListener;
+        focusDotPreDrawListener = null;
+        if (pending == null || rootContainer == null) return;
+        ViewTreeObserver observer = rootContainer.getViewTreeObserver();
+        if (observer.isAlive()) observer.removeOnPreDrawListener(pending);
+    }
+
+    /** Keep the marker hidden while the two screen panels are translating. */
+    private void beginLibraryTransition() {
+        cancelPendingFocusDotUpdate();
+        focusDotTransitionInProgress = true;
+        if (focusPositionDot != null) focusPositionDot.setVisibility(View.GONE);
+    }
+
+    /**
+     * Recompute marker geometry on the first pre-draw after panel positions, visibility
+     * and focus have settled. A plain post() can run before visible-rect geometry is final.
+     */
+    private void scheduleFocusDotUpdateAfterPreDraw() {
+        cancelPendingFocusDotUpdate();
+        if (rootContainer == null) {
+            focusDotTransitionInProgress = false;
+            return;
+        }
+        focusDotTransitionInProgress = true;
+        final ViewTreeObserver observer = rootContainer.getViewTreeObserver();
+        if (!observer.isAlive()) {
+            focusDotTransitionInProgress = false;
+            return;
+        }
+        ViewTreeObserver.OnPreDrawListener listener = new ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                ViewTreeObserver currentObserver = rootContainer.getViewTreeObserver();
+                if (currentObserver.isAlive()) currentObserver.removeOnPreDrawListener(this);
+                if (focusDotPreDrawListener == this) focusDotPreDrawListener = null;
+                focusDotTransitionInProgress = false;
+
+                View target = null;
+                if (libraryVisible && libraryOverlay != null
+                        && libraryOverlay.getVisibility() == View.VISIBLE
+                        && libraryCarousel != null) {
+                    target = libraryCarousel.getSelectedCardView();
+                } else if (!libraryVisible && carouselView != null) {
+                    target = carouselView.getSelectedCardView();
+                }
+                if (target != null && target.isShown()) {
+                    updateFocusPositionDot(target);
+                } else if (focusPositionDot != null) {
+                    focusPositionDot.setVisibility(View.GONE);
+                }
+                return true;
+            }
+        };
+        focusDotPreDrawListener = listener;
+        observer.addOnPreDrawListener(listener);
+        rootContainer.invalidate();
+    }
+
     private void cancelLibraryTransition() {
         AnimatorSet running = libraryTransitionAnimator;
         libraryTransitionAnimator = null;
@@ -1668,6 +1729,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
 
     /** Leave both panels at a stable endpoint if HOME is covered mid-transition. */
     private void settleLibraryTransitionForPause() {
+        cancelPendingFocusDotUpdate();
         cancelLibraryTransition();
         if (safeContainer == null || libraryOverlay == null) return;
         if (libraryVisible) {
@@ -1680,6 +1742,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             libraryOverlay.setVisibility(View.GONE);
         }
         focusDotTransitionInProgress = false;
+        if (focusPositionDot != null) focusPositionDot.setVisibility(View.GONE);
     }
 
     private void finishLibraryTransition(Animator animation, boolean showing) {
@@ -1695,22 +1758,15 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             carouselView.requestFocus();
         }
         libraryTransitionAnimator = null;
-        // Recompute only after both translations and focus have reached their final state.
-        rootContainer.post(() -> {
-            focusDotTransitionInProgress = false;
-            if (showing && libraryVisible) {
-                updateFocusPositionDot(libraryCarousel.getSelectedCardView());
-            } else if (!showing && !libraryVisible) {
-                updateFocusPositionDot(carouselView.getSelectedCardView());
-            }
-        });
+        // Recompute against stable viewport geometry on the first frame after the transition.
+        scheduleFocusDotUpdateAfterPreDraw();
         if (!showing && performanceHud != null && activityResumed) performanceHud.start();
     }
 
     private void showAppLibrary() {
         if (libraryVisible || libraryOverlay == null || libraryCarousel == null) return;
         libraryVisible = true;
-        focusDotTransitionInProgress = true;
+        beginLibraryTransition();
         cancelLibraryTransition();
         // The performance HUD measures only the actual home screen, not the app library.
         if (performanceHud != null) performanceHud.stop();
@@ -1736,13 +1792,12 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
             }
         });
         transition.start();
-        libraryCarousel.requestFocus();
     }
 
     private void hideAppLibrary() {
         if (!libraryVisible || libraryOverlay == null || carouselView == null) return;
         libraryVisible = false;
-        focusDotTransitionInProgress = true;
+        beginLibraryTransition();
         cancelLibraryTransition();
 
         int height = getTransitionHeight();
@@ -1764,6 +1819,7 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
     @Override
     protected void onResume() {
         super.onResume();
+        scheduleFocusDotUpdateAfterPreDraw();
         activityResumed = true;
         registerLauncherAppsCallback();
         registerTimeTickReceiver();

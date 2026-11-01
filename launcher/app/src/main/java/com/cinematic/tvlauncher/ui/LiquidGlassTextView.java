@@ -1,18 +1,18 @@
 package com.cinematic.tvlauncher.ui;
 
 import android.content.Context;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Shader;
-import android.graphics.LinearGradient;
 import android.text.TextPaint;
 import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.widget.TextView;
 
 /**
- * Draws the app-library heading as outlined liquid-glass lettering.
- * The glyph interiors remain transparent; a cool edge gradient and a restrained
- * cyan halo keep the letters distinct over both bright and dark wallpapers.
+ * Restrained liquid-glass treatment for the app-library heading only.
+ * A translucent cool-neutral fill, fine refracted edge and soft depth shadow keep the
+ * glyphs readable without the saturated cyan halo or inflated bubble-like outline.
  */
 public final class LiquidGlassTextView extends TextView {
 
@@ -40,25 +40,28 @@ public final class LiquidGlassTextView extends TextView {
 
         float height = Math.max(1f, getHeight());
         try {
-            // Outer refracted edge: this is the visible glass contour, not a filled white font.
+            // Narrow low-opacity contour suggests a polished glass edge without expanding
+            // the glyph silhouette or producing a detached neon glow.
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeJoin(Paint.Join.ROUND);
             paint.setStrokeCap(Paint.Cap.ROUND);
-            paint.setStrokeWidth(dp(2.0f));
+            paint.setStrokeWidth(dp(0.65f));
             paint.setShader(new LinearGradient(
                     0f, 0f, 0f, height,
-                    new int[] {0xC875E7FF, 0xF5FFFFFF, 0xC86CD7FF},
+                    new int[] {0x557F96A8, 0x8AFFFFFF, 0x55718A9E},
                     null, Shader.TileMode.CLAMP));
-            paint.setShadowLayer(dp(4.2f), 0f, 0f, 0xB35AD8FF);
+            paint.clearShadowLayer();
             super.onDraw(canvas);
 
-            // Fine inner highlight sharpens the contour without filling the letter interior.
-            paint.setStrokeWidth(dp(0.85f));
+            // Near-neutral translucent fill keeps the title readable over bright and dark
+            // wallpapers; the low-saturation gradient provides the glass depth.
+            paint.setStyle(Paint.Style.FILL);
+            paint.setStrokeWidth(0f);
             paint.setShader(new LinearGradient(
                     0f, 0f, 0f, height,
-                    new int[] {0xEAFBFFFF, 0xC8E7FAFF, 0xEAFBFFFF},
+                    new int[] {0xEEF7FAFD, 0xDADDE5ED, 0xEAF1F5FA},
                     null, Shader.TileMode.CLAMP));
-            paint.setShadowLayer(dp(1.4f), 0f, dp(0.3f), 0x90E4FAFF);
+            paint.setShadowLayer(dp(1.1f), 0f, dp(0.8f), 0x55030A12);
             super.onDraw(canvas);
         } finally {
             paint.setColor(originalColor);

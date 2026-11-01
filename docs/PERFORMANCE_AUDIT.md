@@ -255,3 +255,29 @@ No UI component, navigation behavior, Watch Next feature, wallpaper crossfade, o
 
 - Source-level regression paths identified and targeted in branch fix/watch-next-incremental-refresh-weather-wmo-20261031.
 - Hosted integrity/unit/build validation and physical Hisense CPU/RAM comparison are pending. No percentage improvement is claimed until the same Continue Watching navigation scene is measured on the TV.
+
+
+## Seguimiento — decodificación de fondos, HUD y navegación Biblioteca (2026-11-01)
+
+### Evidencia recopilada en Hisense Android 12, después de fusionar PR #28
+
+- Proceso observado: PID `18993`; la secuencia de memoria mantuvo el mismo PID durante seis muestras de 20 segundos.
+- PSS total (KB): 53.869 → 83.699 → 70.220 → 70.120 → 66.396 → 70.364. El pico inicial descendió y las últimas cuatro muestras oscilaron alrededor de 66–70 MB; esta secuencia no demuestra una fuga monotónica.
+- `top` mostró pulsos de CPU de aproximadamente 13–19%, picos aislados de 31%, 33%, 42% y un máximo observado de 70%. RES subió desde unos 201 MB, alcanzó un pico de 329 MB y luego volvió a aproximadamente 192–206 MB.
+- Los registros del decodificador mostraron JPEG entre 99 y 738 ms y PNG entre 717 y 984 ms. El muestreo de paleta HUD tardó 1–4 ms. Las PNG se decodificaron correctamente mediante `PNG_REGION_ARGB8888` después del merge de PR #28; el fallo anterior de `ImageDecoder.checkSubset` dejó de aparecer en el periodo nuevo.
+- Las muestras de `top` y los registros de decodificación no se capturaron con una base temporal común. No se atribuye el pico máximo de CPU a una operación concreta sin esa correlación.
+
+### Cambios fuente de este seguimiento
+
+- Los PNG grayscale/RGB sin alfa y sin transparencia `tRNS`, verificados a partir de sus chunks, pueden decodificarse con `RGB_565`. PNG con canal alfa, paleta, `tRNS`, cabecera inválida o formato desconocido permanecen en `ARGB_8888`.
+- Los logs de decodificación incluyen tiempo de CPU del hilo además del tiempo de pared, para distinguir trabajo efectivo de espera/latencia.
+- Los bitmaps cuyo callback llega a la UI después de quedar obsoleto se reciclan en esa ruta de carrera, en vez de quedar retenidos por un callback ya inválido.
+- El HUD conserva CPU cada 3 segundos y refresca PSS cada 15 segundos, reduciendo llamadas frecuentes a `Debug.getMemoryInfo()` sin quitar el panel.
+- El indicador de foco se oculta durante la transición entre Recientes y Biblioteca y se vuelve a ubicar en el primer pre-draw después de fijar posiciones, visibilidad y foco finales.
+- El encabezado de Biblioteca cambia de doble trazo blanco/cian con halo fuerte a un relleno de vidrio frío-neutro, borde fino y sombra tenue. El cambio solo afecta a `LiquidGlassTextView`, usado por el título de Biblioteca.
+
+### Validación pendiente
+
+- La suite pura de Java añade pruebas para transparencia PNG y selección segura de configuración. El resultado de GitHub Actions de este seguimiento debe consultarse antes de marcar CI como PASS.
+- La mejora real de CPU/RAM, el aspecto del encabezado a distancia de TV y la estabilidad del indicador requieren instalar el APK resultante y repetir la captura en el Hisense. No se consideran validados por el cambio fuente ni por la compilación.
+- No se modifican la frecuencia de rotación de 20 segundos, la calidad/resolución objetivo de los fondos, el diseño de tarjetas, ni las funciones de la Biblioteca/Recientes.
