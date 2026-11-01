@@ -195,10 +195,8 @@ public class CinematicBackgroundManager {
     }
 
     private boolean isSupportedImage(File file) {
-        if (file == null || !file.isFile()) return false;
-        String name = file.getName().toLowerCase(java.util.Locale.ROOT);
-        return name.endsWith(".jpg") || name.endsWith(".jpeg")
-                || name.endsWith(".png") || name.endsWith(".webp");
+        return file != null && file.isFile()
+                && RotationQueue.isSupportedImageName(file.getName());
     }
 
     /** Lists only app-imported wallpapers, excluding arbitrary files in public Pictures. */
