@@ -57,6 +57,7 @@ public class CinematicBackgroundManager {
     private AnimatorSet crossfadeAnimator;
     private Future<?> pendingDecode;
     private final AtomicLong workGeneration = new AtomicLong();
+    private final AtomicLong localBackgroundLoadGeneration = new AtomicLong();
     private boolean hasRealWallpaperLoaded = false;
     private volatile File currentWallpaperFile;
     private File wallpaperFileA;
@@ -123,6 +124,7 @@ public class CinematicBackgroundManager {
     public void loadLocalBackgrounds(File preferredBackground) {
         if (destroyed) return;
         if (preferredBackground != null) pendingPreferredBackground = preferredBackground;
+        final long loadGeneration = localBackgroundLoadGeneration.incrementAndGet();
         try {
             decodeExecutor.execute(() -> {
             try {
@@ -139,7 +141,8 @@ public class CinematicBackgroundManager {
                     addImagesFromDirectory(publicPictures, images);
                 }
 
-                if (destroyed || Thread.currentThread().isInterrupted()) return;
+                if (destroyed || Thread.currentThread().isInterrupted()
+                        || loadGeneration != localBackgroundLoadGeneration.get()) return;
                 queue.setImages(images);
                 if (currentWallpaperFile != null && currentWallpaperFile.isFile()) {
                     queue.markDisplayed(currentWallpaperFile);
@@ -148,7 +151,8 @@ public class CinematicBackgroundManager {
                 // Do not make the first real wallpaper wait through the normal 10-second
                 // rotation interval. Decode it immediately after discovery, off the UI thread.
                 mainHandler.post(() -> {
-                    if (!isVisible || destroyed) return;
+                    if (!isVisible || destroyed
+                            || loadGeneration != localBackgroundLoadGeneration.get()) return;
                     File preferred = pendingPreferredBackground;
                     if (preferred != null && preferred.isFile() && images.contains(preferred)) {
                         pendingPreferredBackground = null;
