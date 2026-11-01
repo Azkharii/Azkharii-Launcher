@@ -1,17 +1,18 @@
 package com.cinematic.tvlauncher.ui;
 
 import android.content.Context;
-import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Shader;
+import android.graphics.LinearGradient;
 import android.text.TextPaint;
 import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.widget.TextView;
 
 /**
- * Lightweight outlined/glass text for the app-library heading.
- * Draws a crisp pale edge with a restrained cyan halo and a low-opacity fill,
- * keeping the original text metrics, font, weight and layout unchanged.
+ * Draws the app-library heading as outlined liquid-glass lettering.
+ * The glyph interiors remain transparent; a cool edge gradient and a restrained
+ * cyan halo keep the letters distinct over both bright and dark wallpapers.
  */
 public final class LiquidGlassTextView extends TextView {
 
@@ -35,29 +36,39 @@ public final class LiquidGlassTextView extends TextView {
         float originalStrokeWidth = paint.getStrokeWidth();
         Paint.Join originalJoin = paint.getStrokeJoin();
         Paint.Cap originalCap = paint.getStrokeCap();
+        Shader originalShader = paint.getShader();
 
-        // Outer glass edge: mostly transparent interior, bright enough to stay readable.
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeJoin(Paint.Join.ROUND);
-        paint.setStrokeCap(Paint.Cap.ROUND);
-        paint.setStrokeWidth(dp(0.95f));
-        paint.setColor(Color.argb(244, 235, 249, 255));
-        paint.setShadowLayer(dp(2.6f), 0f, 0f, 0xB05BC8EE);
-        super.onDraw(canvas);
+        float height = Math.max(1f, getHeight());
+        try {
+            // Outer refracted edge: this is the visible glass contour, not a filled white font.
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeWidth(dp(2.0f));
+            paint.setShader(new LinearGradient(
+                    0f, 0f, 0f, height,
+                    new int[] {0xC875E7FF, 0xF5FFFFFF, 0xC86CD7FF},
+                    null, Shader.TileMode.CLAMP));
+            paint.setShadowLayer(dp(4.2f), 0f, 0f, 0xB35AD8FF);
+            super.onDraw(canvas);
 
-        // A faint inner tint prevents the outlined glyphs from disappearing on bright images.
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.argb(36, 236, 248, 255));
-        paint.setShadowLayer(dp(3f), 0f, dp(1f), 0xB0000000);
-        super.onDraw(canvas);
-
-        paint.setColor(originalColor);
-        paint.setStyle(originalStyle);
-        paint.setStrokeWidth(originalStrokeWidth);
-        paint.setStrokeJoin(originalJoin);
-        paint.setStrokeCap(originalCap);
-        // Match the heading's existing black drop-shadow after restoring its original paint.
-        paint.setShadowLayer(dp(4f), dp(1f), dp(2f), 0xC0000000);
+            // Fine inner highlight sharpens the contour without filling the letter interior.
+            paint.setStrokeWidth(dp(0.85f));
+            paint.setShader(new LinearGradient(
+                    0f, 0f, 0f, height,
+                    new int[] {0xEAFBFFFF, 0xC8E7FAFF, 0xEAFBFFFF},
+                    null, Shader.TileMode.CLAMP));
+            paint.setShadowLayer(dp(1.4f), 0f, dp(0.3f), 0x90E4FAFF);
+            super.onDraw(canvas);
+        } finally {
+            paint.setColor(originalColor);
+            paint.setStyle(originalStyle);
+            paint.setStrokeWidth(originalStrokeWidth);
+            paint.setStrokeJoin(originalJoin);
+            paint.setStrokeCap(originalCap);
+            paint.setShader(originalShader);
+            paint.clearShadowLayer();
+        }
     }
 
     private float dp(float value) {
