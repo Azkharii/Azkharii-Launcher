@@ -75,7 +75,7 @@ public class CinematicBackgroundManager {
             rotateToNext();
             // Keep rotation event-driven: do not wake the main looper when no wallpapers exist.
             // With one photo, displaying it once is enough; re-decoding and crossfading
-            // the same bitmap every 10 seconds produces no visual change.
+            // the same bitmap every 20 seconds produces no visual change.
             if (isVisible && !destroyed && queue.size() > 1) {
                 mainHandler.postDelayed(this, config.getRotationIntervalSec() * 1000L);
             }
@@ -152,7 +152,7 @@ public class CinematicBackgroundManager {
                     queue.markDisplayed(currentWallpaperFile);
                 }
                 Log.i(TAG, "Loaded " + images.size() + " local background images");
-                // Do not make the first real wallpaper wait through the normal 10-second
+                // Do not make the first real wallpaper wait through the normal 20-second
                 // rotation interval. Decode it immediately after discovery, off the UI thread.
                 mainHandler.post(() -> {
                     if (!isVisible || destroyed
