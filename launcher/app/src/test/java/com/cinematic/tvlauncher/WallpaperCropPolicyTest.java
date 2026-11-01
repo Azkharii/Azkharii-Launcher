@@ -11,7 +11,10 @@ public class WallpaperCropPolicyTest {
         testMatchingAspectKeepsWholeImage();
         testSmallSourceIsNotExpandedByCropPolicy();
         testPortraitSourceUsesCenteredLandscapeWindow();
-        System.out.println("  [PASS] WallpaperCropPolicyTest: all 5 tests passed.");
+        testFourKSourceUsesHalfResolutionRegionDecode();
+        testVeryLargeSourceUsesQuarterResolutionRegionDecode();
+        testNearViewportSourceKeepsFullResolution();
+        System.out.println("  [PASS] WallpaperCropPolicyTest: all 8 tests passed.");
     }
 
     private static void testFourByThreeSourceCropsTopAndBottom() {
@@ -42,5 +45,17 @@ public class WallpaperCropPolicyTest {
         int[] crop = WallpaperCropPolicy.centerCropRect(1080, 1920, 1920, 1080);
         assert crop[0] == 0 && crop[2] == 1080;
         assert crop[1] == 656 && crop[3] == 1264;
+    }
+
+    private static void testFourKSourceUsesHalfResolutionRegionDecode() {
+        assert WallpaperCropPolicy.calculateRegionSampleSize(3840, 2160, 2048, 1152) == 2;
+    }
+
+    private static void testVeryLargeSourceUsesQuarterResolutionRegionDecode() {
+        assert WallpaperCropPolicy.calculateRegionSampleSize(7680, 4320, 2048, 1152) == 4;
+    }
+
+    private static void testNearViewportSourceKeepsFullResolution() {
+        assert WallpaperCropPolicy.calculateRegionSampleSize(2560, 1440, 2048, 1152) == 1;
     }
 }
