@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * CinematicBackgroundManager — Controls local wallpaper rotation, viewport-sized decoding,
- * crossfade transitions, and optional subtle motion.
+ * crossfade transitions with foreground-only work.
  * Fulfills MASTER_PROMPT Annex C.2 and C.3.
  */
 public class CinematicBackgroundManager {
