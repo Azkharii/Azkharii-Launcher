@@ -12,6 +12,7 @@ import android.graphics.ImageDecoder;
 import android.graphics.Rect;
 import android.media.ExifInterface;
 import android.graphics.drawable.Drawable;
+import android.os.Debug;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -299,12 +300,15 @@ public class CinematicBackgroundManager {
                     bitmap.recycle();
                     return;
                 }
-                mainHandler.post(() -> {
+                boolean posted = mainHandler.post(() -> {
                     if (!destroyed && isVisible && generation == workGeneration.get()) {
                         applyCrossfade(bitmap, file);
+                    } else if (!bitmap.isRecycled()) {
+                        // The request became stale after the worker posted its UI callback.
+                        bitmap.recycle();
                     }
-                    // The decoded bitmap is retained only by the active wallpaper layer.
                 });
+                if (!posted && !bitmap.isRecycled()) bitmap.recycle();
             });
             return true;
         } catch (java.util.concurrent.RejectedExecutionException e) {
@@ -429,12 +433,15 @@ public class CinematicBackgroundManager {
                     bitmap.recycle();
                     return;
                 }
-                mainHandler.post(() -> {
+                boolean posted = mainHandler.post(() -> {
                     if (isVisible && !destroyed && generation == workGeneration.get()) {
                         applyCrossfade(bitmap, nextFile);
+                    } else if (!bitmap.isRecycled()) {
+                        // HOME paused or a newer wallpaper superseded this request after posting.
+                        bitmap.recycle();
                     }
-                    // The decoded bitmap is retained only by the active wallpaper layer.
                 });
+                if (!posted && !bitmap.isRecycled()) bitmap.recycle();
             });
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
             // The launcher is shutting down; no background work should be restarted.
@@ -584,6 +591,7 @@ public class CinematicBackgroundManager {
      */
     private Bitmap decodeSampledBitmap(File file) {
         long startedAt = SystemClock.elapsedRealtime();
+        long cpuStartedAt = Debug.threadCpuTimeNanos();
         try {
             if (Thread.currentThread().isInterrupted() || destroyed) return null;
             int reqWidth = wallpaperTargetWidth();
@@ -600,8 +608,14 @@ public class CinematicBackgroundManager {
                 }
             } else if (file.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".png")) {
                 try {
-                    decoded = decodeRegion(file, reqWidth, reqHeight, Bitmap.Config.ARGB_8888);
-                    if (decoded != null) decodePath = "PNG_REGION_ARGB8888";
+                    Bitmap.Config pngConfig = WallpaperCropPolicy.hasTransparency(file)
+                            ? Bitmap.Config.ARGB_8888 : Bitmap.Config.RGB_565;
+                    decoded = decodeRegion(file, reqWidth, reqHeight, pngConfig);
+                    if (decoded != null) {
+                        decodePath = pngConfig == Bitmap.Config.ARGB_8888
+                                ? "PNG_REGION_ARGB8888_ALPHA"
+                                : "PNG_REGION_RGB565_OPAQUE";
+                    }
                 } catch (Exception e) {
                     Log.w(TAG, "PNG region decode unavailable; falling back to ImageDecoder", e);
                 }
@@ -651,7 +665,9 @@ public class CinematicBackgroundManager {
                         + " target=" + reqWidth + "x" + reqHeight
                         + " display=" + activity.getResources().getDisplayMetrics().widthPixels
                         + "x" + activity.getResources().getDisplayMetrics().heightPixels
-                        + " elapsed=" + (SystemClock.elapsedRealtime() - startedAt) + "ms");
+                        + " elapsed=" + (SystemClock.elapsedRealtime() - startedAt) + "ms"
+                        + " cpu=" + Math.max(0L,
+                                (Debug.threadCpuTimeNanos() - cpuStartedAt) / 1_000_000L) + "ms");
             }
             return decoded;
         } catch (Exception e) {

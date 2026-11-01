@@ -418,3 +418,27 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - Wallpaper rotation interval is now 20 seconds. The existing Activity lifecycle pause/resume remains the only visibility gate. Entering the in-Activity app library does not pause rotation; leaving the Activity for another app does.
 - Added an outlined Liquid Glass treatment only to the “Biblioteca de aplicaciones” heading. Its typeface, size, positioning and layout dimensions are retained; app-card labels and other UI text are unchanged.
 - Automated validation for this commit: PENDING hosted tests, Debug/Release build and signed APK verification. Physical Hisense TV measurements (CPU, memory, frame pacing) and visual inspection remain PENDING. No measured CPU reduction or on-device success is claimed.
+
+
+## Seguimiento de rendimiento y foco — 2026-11-01
+
+### Línea base del dispositivo (después de PR #28)
+
+- PR #28 está fusionado en `main` mediante el commit `1ff5aad62b3775e293e96518d96382c542f46ab7`.
+- En el Hisense, el decodificador nuevo procesó PNG con la ruta `PNG_REGION_ARGB8888`; las líneas observadas ya no mostraron el fallo `ImageDecoder.checkSubset` del proceso anterior.
+- Las mediciones del usuario del proceso PID `18993` dieron seis muestras PSS entre 53.869 y 83.699 KB. Tras el pico de la segunda muestra, las últimas cuatro quedaron entre 66.396 y 70.364 KB.
+- La captura `top` tuvo pulsos de 13–19% CPU, picos aislados hasta 70% y un máximo RES de 329 MB. Esos datos justifican una optimización, pero no prueban por sí solos una fuga ni identifican qué hilo causó cada pico.
+
+### Cambios y pruebas de esta revisión
+
+| Área | Cambio | Prueba automatizada | Estado |
+|---|---|---|---|
+| PNG sin transparencia | Selección conservadora de RGB_565; conservar ARGB_8888 para alpha, tRNS, paleta o PNG dudoso | Seis casos añadidos a `WallpaperCropPolicyTest` | Pendiente de GitHub Actions |
+| Memoria de bitmaps | Reciclar resultado si el callback principal llega después de que la solicitud quedó obsoleta | Revisión de las dos rutas de callback | Pendiente de CI y TV |
+| Instrumentación | Añadir tiempo CPU del hilo al log de decodificación | Verificación de compilación | Pendiente de CI |
+| HUD | CPU permanece cada 3 s; PSS baja a una muestra cada 15 s | Revisión de la política; no hay prueba de Android local | Pendiente de CI |
+| Punto guía | Ocultar durante el deslizamiento y calcular en el primer pre-draw con geometría final | Revisión de ciclo de transición | Requiere prueba con control remoto |
+| Título Liquid Glass | Reducir saturación/borde/halo y usar relleno translúcido frío-neutro | Revisión fuente; sin snapshot de UI | Requiere inspección visual en TV |
+
+**Resultado de CI para esta revisión:** pendiente al crear el PR.  
+**Instalación y validación física en Hisense:** no ejecutadas todavía. No marcar como PASS hasta confirmar comportamiento en el televisor.
