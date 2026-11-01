@@ -356,7 +356,9 @@ public class CinematicBackgroundManager {
             pendingPreferredBackground = null;
         }
         if (pendingPreferredBackground != null) {
-            loadLocalBackgrounds(pendingPreferredBackground);
+            if (!isLocalBackgroundLoadPending()) {
+                loadLocalBackgrounds(pendingPreferredBackground);
+            }
         } else if (!localBackgroundsLoaded && !isLocalBackgroundLoadPending()) {
             loadLocalBackgrounds();
         } else if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
