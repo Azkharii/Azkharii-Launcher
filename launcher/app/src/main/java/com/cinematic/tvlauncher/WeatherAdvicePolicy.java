@@ -9,7 +9,10 @@ final class WeatherAdvicePolicy {
         int perceivedCold = Math.min(temperatureC, feelsLikeC);
         if (perceivedHeat >= 42) return new String[] {"Llamen a Dios", "Toma agua", "Busca sombra"};
         if (perceivedHeat >= 38) return new String[] {"Calor intenso", "Enciende el ventilador", "Hidrátate"};
-        if (perceivedHeat >= 32) return new String[] {"Toma agua", "Usa ropa ligera", "Busca sombra"};
+        if (perceivedHeat >= 32) {
+            return new String[] {"Toma agua", "Usa ropa ligera",
+                    isDay ? "Busca sombra" : "Mantén ventilación"};
+        }
         if (perceivedCold <= 8) {
             return new String[] {"Abrígate bien", "Evita el frío",
                     isDay ? "Bebida caliente" : "Noche fría"};
