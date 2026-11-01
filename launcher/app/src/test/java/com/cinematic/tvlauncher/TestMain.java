@@ -11,7 +11,7 @@ public class TestMain {
         System.out.println("  Cinematic Android TV Launcher - Unit Test Suite ");
         System.out.println("==================================================");
 
-        int totalSuites = 10;
+        int totalSuites = 11;
         int passedSuites = 0;
 
         try {
@@ -101,6 +101,16 @@ public class TestMain {
             passedSuites++;
         } catch (Throwable t) {
             System.err.println("  [FAIL] WeatherAdvicePolicyTest: " + t.getMessage());
+            t.printStackTrace();
+        }
+
+
+        try {
+            System.out.println("11. Running WallpaperCropPolicyTest (viewport-aware center crop)...");
+            WallpaperCropPolicyTest.runTests();
+            passedSuites++;
+        } catch (Throwable t) {
+            System.err.println("  [FAIL] WallpaperCropPolicyTest: " + t.getMessage());
             t.printStackTrace();
         }
 

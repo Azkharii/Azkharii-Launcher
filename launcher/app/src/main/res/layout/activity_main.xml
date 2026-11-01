@@ -5,7 +5,7 @@
     android:layout_height="match_parent"
     android:background="@color/black">
 
-    <!-- Dual ImageView for the 400ms crossfade background rotation (Annex C.2) -->
+    <!-- Dual ImageView for the 160ms crossfade background rotation (Annex C.2) -->
     <ImageView
         android:id="@+id/bg_image_a"
         android:layout_width="match_parent"
@@ -18,8 +18,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
-        android:alpha="0"
-        android:src="@drawable/default_wallpaper" />
+        android:alpha="0" />
 
     <!-- Top and Bottom Scrim Gradients (Annex C.1) -->
     <View
@@ -462,11 +461,7 @@
                 android:textColor="@color/text_primary"
                 android:textSize="30sp"
                 android:fontFamily="sans-serif-black"
-                android:textStyle="bold"
-                android:shadowColor="#C0000000"
-                android:shadowDx="1"
-                android:shadowDy="2"
-                android:shadowRadius="4" />
+                android:textStyle="bold" />
 
             <Space
                 android:layout_width="match_parent"

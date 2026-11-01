@@ -15,6 +15,7 @@ echo "=== Compiling Unit Tests with OpenJDK 17 ==="
 javac -d "$BUILD_DIR" \
     launcher/app/src/main/java/com/cinematic/tvlauncher/config/LauncherConfig.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/background/RotationQueue.java \
+    launcher/app/src/main/java/com/cinematic/tvlauncher/background/WallpaperCropPolicy.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/controls/DeferredImportQueue.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/carousel/CarouselLayoutCalculator.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/navigation/PinnedWheelSlotOrder.java \
@@ -33,6 +34,7 @@ javac -d "$BUILD_DIR" \
     launcher/app/src/test/java/android/content/res/Resources.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/R.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/RotationQueueTest.java \
+    launcher/app/src/test/java/com/cinematic/tvlauncher/WallpaperCropPolicyTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/DeferredImportQueueTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/CarouselMathTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/LauncherConfigTest.java \

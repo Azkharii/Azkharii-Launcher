@@ -1036,7 +1036,10 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         try {
             hudColorSampleTask = HUD_COLOR_EXECUTOR.submit(() -> {
                 if (Thread.currentThread().isInterrupted() || request != hudColorGeneration) return;
+                long sampleStartedAt = android.os.SystemClock.elapsedRealtime();
                 int accent = sampleHudAccent(snapshot);
+                Log.d(TAG, "Wallpaper HUD palette sample took "
+                        + (android.os.SystemClock.elapsedRealtime() - sampleStartedAt) + " ms");
                 if (Thread.currentThread().isInterrupted() || request != hudColorGeneration) return;
                 runOnUiThread(() -> {
                     if (request != hudColorGeneration || isFinishing() || isDestroyed()) return;
@@ -1133,7 +1136,6 @@ public class MainActivity extends AppCompatActivity implements AppCarouselView.O
         }
     }
 
-    /** Smoothly blend wallpaper-derived accents; a newer wallpaper continues from the current tint. */
     /**
      * Smoothly blend wallpaper-derived accents with bounded redraw work.
      * HSV endpoints are computed once and UI properties update at most 30 times/second.

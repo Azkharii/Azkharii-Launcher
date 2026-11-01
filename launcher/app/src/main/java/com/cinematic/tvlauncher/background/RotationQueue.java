@@ -3,6 +3,7 @@ package com.cinematic.tvlauncher.background;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Random;
 
 /**
@@ -27,7 +28,7 @@ public class RotationQueue {
         imageFiles.clear();
         if (files != null) {
             for (File f : files) {
-                if (f != null && f.exists() && f.isFile() && isImageFile(f.getName())) {
+                if (f != null && f.exists() && f.isFile() && isSupportedImageName(f.getName())) {
                     imageFiles.add(f);
                 }
             }
@@ -36,7 +37,7 @@ public class RotationQueue {
     }
 
     public synchronized void addImage(File file) {
-        if (file != null && file.exists() && file.isFile() && isImageFile(file.getName())) {
+        if (file != null && file.exists() && file.isFile() && isSupportedImageName(file.getName())) {
             if (!imageFiles.contains(file)) {
                 imageFiles.add(file);
             }
@@ -112,10 +113,11 @@ public class RotationQueue {
         return lastImage;
     }
 
-    private static boolean isImageFile(String name) {
+    /** Shared extension policy used by both rotation and local-file discovery. */
+    public static boolean isSupportedImageName(String name) {
         if (name == null) return false;
-        String lower = name.toLowerCase();
-        return lower.endsWith(".jpg") || lower.endsWith(".jpeg") ||
-               lower.endsWith(".png") || lower.endsWith(".webp");
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".jpg") || lower.endsWith(".jpeg")
+                || lower.endsWith(".png") || lower.endsWith(".webp");
     }
 }

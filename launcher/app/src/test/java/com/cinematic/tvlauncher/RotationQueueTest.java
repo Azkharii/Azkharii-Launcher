@@ -85,15 +85,26 @@ public class RotationQueueTest {
         File txtFile = File.createTempFile("document", ".txt");
         File pdfFile = File.createTempFile("document", ".pdf");
         File jpgFile = File.createTempFile("image", ".jpg");
+        File webpFile = File.createTempFile("wallpaper", ".webp");
+        File pngFile = File.createTempFile("wallpaper", ".PNG");
         txtFile.deleteOnExit();
         pdfFile.deleteOnExit();
         jpgFile.deleteOnExit();
+        webpFile.deleteOnExit();
+        pngFile.deleteOnExit();
 
         queue.addImage(txtFile);
         queue.addImage(pdfFile);
         queue.addImage(jpgFile);
+        queue.addImage(webpFile);
+        queue.addImage(pngFile);
 
-        assert queue.size() == 1 : "Only jpgFile should be added, actual size: " + queue.size();
-        assert queue.getNextRandomImage().equals(jpgFile);
+        assert queue.size() == 3 : "Only supported raster images should be added, actual size: " + queue.size();
+        for (int i = 0; i < 3; i++) {
+            File selected = queue.getNextRandomImage();
+            assert selected != null;
+            assert selected.equals(jpgFile) || selected.equals(webpFile) || selected.equals(pngFile)
+                    : "Queue returned unsupported file type: " + selected;
+        }
     }
 }
