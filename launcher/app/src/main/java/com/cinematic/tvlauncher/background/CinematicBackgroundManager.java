@@ -89,7 +89,18 @@ public class CinematicBackgroundManager {
         this.queue = new RotationQueue();
         this.mainHandler = new Handler(Looper.getMainLooper());
         this.decodeExecutor = new ThreadPoolExecutor(
-                0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+                0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>(), task -> {
+                    Thread worker = new Thread(() -> {
+                        try {
+                            android.os.Process.setThreadPriority(
+                                    android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                        } catch (RuntimeException ignored) {
+                            // Keep decoding if this firmware rejects a thread-priority change.
+                        }
+                        task.run();
+                    }, "CinematicWallpaperWorker");
+                    return worker;
+                });
 
         loadLocalBackgrounds();
     }
