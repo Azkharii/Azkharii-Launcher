@@ -155,7 +155,6 @@ public class CinematicBackgroundManager {
                             || loadGeneration != localBackgroundLoadGeneration.get()) return;
                     File preferred = pendingPreferredBackground;
                     if (preferred != null && preferred.isFile() && images.contains(preferred)) {
-                        pendingPreferredBackground = null;
                         showWallpaper(preferred);
                     } else {
                         if (preferred != null && !preferred.isFile()) pendingPreferredBackground = null;
@@ -253,6 +252,7 @@ public class CinematicBackgroundManager {
             crossfadeAnimator.cancel();
             crossfadeAnimator = null;
         }
+        pendingPreferredBackground = file;
         long generation = workGeneration.incrementAndGet();
         try {
             pendingDecode = decodeExecutor.submit(() -> {
@@ -333,7 +333,10 @@ public class CinematicBackgroundManager {
         workGeneration.incrementAndGet();
         // On cold start, show the first real wallpaper as soon as the local queue is ready.
         // Once one has loaded, preserve the current image and resume normal timed rotation.
-        if (pendingPreferredBackground != null && pendingPreferredBackground.isFile()) {
+        if (pendingPreferredBackground != null && !pendingPreferredBackground.isFile()) {
+            pendingPreferredBackground = null;
+        }
+        if (pendingPreferredBackground != null) {
             loadLocalBackgrounds(pendingPreferredBackground);
         } else if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
             rotateToNext();
@@ -432,6 +435,10 @@ public class CinematicBackgroundManager {
                 back.setAlpha(1f);
                 isFrontA = !isFrontA;
                 hasRealWallpaperLoaded = true;
+                if (pendingPreferredBackground != null
+                        && pendingPreferredBackground.equals(sourceFile)) {
+                    pendingPreferredBackground = null;
+                }
                 scheduleRotationIfAvailable();
                 if (crossfadeAnimator == crossfade) crossfadeAnimator = null;
                 if (isVisible && !destroyed) notifyBackgroundChanged();
