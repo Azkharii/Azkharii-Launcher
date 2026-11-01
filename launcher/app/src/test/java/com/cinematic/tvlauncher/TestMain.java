@@ -33,7 +33,7 @@ public class TestMain {
         }
 
         try {
-            System.out.println("4. Running CarouselMathTest (Annex C.1, D.3)...");
+            System.out.println("3. Running CarouselMathTest (Annex C.1, D.3)...");
             CarouselMathTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
