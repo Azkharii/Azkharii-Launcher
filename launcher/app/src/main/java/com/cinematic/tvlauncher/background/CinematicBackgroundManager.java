@@ -540,8 +540,8 @@ public class CinematicBackgroundManager {
      * ARGB_8888. Only normal-orientation JPEGs use this route; other EXIF orientations fall
      * through to ImageDecoder so their displayed rotation remains correct.
      */
-    private Bitmap decodeOpaqueJpegRegion(File file, int reqWidth, int reqHeight)
-            throws java.io.IOException {
+    private Bitmap decodeRegion(File file, int reqWidth, int reqHeight,
+                                Bitmap.Config preferredConfig) throws java.io.IOException {
         ExifInterface exif = new ExifInterface(file.getAbsolutePath());
         int orientation = exif.getAttributeInt(
                 ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED);
@@ -560,9 +560,19 @@ public class CinematicBackgroundManager {
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inSampleSize = WallpaperCropPolicy.calculateRegionSampleSize(
                     crop.width(), crop.height(), reqWidth, reqHeight);
-            options.inPreferredConfig = Bitmap.Config.RGB_565;
-            options.inDither = true;
-            return regionDecoder.decodeRegion(crop, options);
+            options.inPreferredConfig = preferredConfig;
+            options.inDither = preferredConfig == Bitmap.Config.RGB_565;
+            Bitmap decoded = regionDecoder.decodeRegion(crop, options);
+            if (decoded != null && (decoded.getWidth() > reqWidth || decoded.getHeight() > reqHeight)) {
+                double scale = Math.min(reqWidth / (double) decoded.getWidth(),
+                        reqHeight / (double) decoded.getHeight());
+                int width = Math.max(1, (int) Math.round(decoded.getWidth() * scale));
+                int height = Math.max(1, (int) Math.round(decoded.getHeight() * scale));
+                Bitmap scaled = Bitmap.createScaledBitmap(decoded, width, height, true);
+                if (scaled != decoded) decoded.recycle();
+                decoded = scaled;
+            }
+            return decoded;
         } finally {
             if (regionDecoder != null) regionDecoder.recycle();
         }
@@ -579,12 +589,21 @@ public class CinematicBackgroundManager {
             int reqWidth = wallpaperTargetWidth();
             int reqHeight = wallpaperTargetHeight();
             Bitmap decoded = null;
+            String decodePath = "BITMAP_FACTORY";
 
             if (isJpegFile(file)) {
                 try {
-                    decoded = decodeOpaqueJpegRegion(file, reqWidth, reqHeight);
+                    decoded = decodeRegion(file, reqWidth, reqHeight, Bitmap.Config.RGB_565);
+                    if (decoded != null) decodePath = "JPEG_REGION_RGB565";
                 } catch (Exception e) {
                     Log.w(TAG, "JPEG region decode unavailable; falling back to ImageDecoder", e);
+                }
+            } else if (file.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".png")) {
+                try {
+                    decoded = decodeRegion(file, reqWidth, reqHeight, Bitmap.Config.ARGB_8888);
+                    if (decoded != null) decodePath = "PNG_REGION_ARGB8888";
+                } catch (Exception e) {
+                    Log.w(TAG, "PNG region decode unavailable; falling back to ImageDecoder", e);
                 }
             }
 
@@ -595,23 +614,22 @@ public class CinematicBackgroundManager {
                         decoder.setTargetSize(1, 1);
                         return;
                     }
+                    // ImageDecoder applies target scaling before its subset validation on this
+                    // firmware. Do not pass a source-resolution crop to setCrop(); keep the
+                    // source aspect ratio and let the ImageView's existing CENTER_CROP do the
+                    // final viewport crop.
                     int sourceWidth = Math.max(1, info.getSize().getWidth());
                     int sourceHeight = Math.max(1, info.getSize().getHeight());
-                    int[] bounds = WallpaperCropPolicy.centerCropRect(
-                            sourceWidth, sourceHeight, reqWidth, reqHeight);
-                    Rect crop = new Rect(bounds[0], bounds[1], bounds[2], bounds[3]);
-                    int cropWidth = Math.max(1, crop.width());
-                    int cropHeight = Math.max(1, crop.height());
                     double scale = Math.min(1d, Math.min(
-                            reqWidth / (double) cropWidth,
-                            reqHeight / (double) cropHeight));
-                    int targetWidth = Math.max(1, (int) Math.round(cropWidth * scale));
-                    int targetHeight = Math.max(1, (int) Math.round(cropHeight * scale));
-                    decoder.setCrop(crop);
+                            reqWidth / (double) sourceWidth,
+                            reqHeight / (double) sourceHeight));
+                    int targetWidth = Math.max(1, (int) Math.round(sourceWidth * scale));
+                    int targetHeight = Math.max(1, (int) Math.round(sourceHeight * scale));
                     decoder.setTargetSize(targetWidth, targetHeight);
                     decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
                     decoder.setMemorySizePolicy(ImageDecoder.MEMORY_POLICY_LOW_RAM);
                 });
+                decodePath = "IMAGE_DECODER_NO_CROP";
             } else if (decoded == null) {
                 BitmapFactory.Options options = new BitmapFactory.Options();
                 options.inJustDecodeBounds = true;
@@ -629,6 +647,7 @@ public class CinematicBackgroundManager {
                         + decoded.getWidth() + "x" + decoded.getHeight()
                         + " allocation=" + decoded.getAllocationByteCount()
                         + "B config=" + decoded.getConfig()
+                        + " path=" + decodePath
                         + " target=" + reqWidth + "x" + reqHeight
                         + " display=" + activity.getResources().getDisplayMetrics().widthPixels
                         + "x" + activity.getResources().getDisplayMetrics().heightPixels
