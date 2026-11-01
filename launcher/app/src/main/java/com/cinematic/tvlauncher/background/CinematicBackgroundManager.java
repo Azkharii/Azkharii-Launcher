@@ -52,6 +52,7 @@ public class CinematicBackgroundManager {
 
     private volatile boolean isVisible = false;
     private volatile boolean destroyed = false;
+    private File pendingPreferredBackground;
     private boolean isFrontA = true;
     private AnimatorSet crossfadeAnimator;
     private Future<?> pendingDecode;
@@ -121,6 +122,7 @@ public class CinematicBackgroundManager {
     /** Reloads managed images and optionally applies the first newly imported selection. */
     public void loadLocalBackgrounds(File preferredBackground) {
         if (destroyed) return;
+        if (preferredBackground != null) pendingPreferredBackground = preferredBackground;
         try {
             decodeExecutor.execute(() -> {
             try {
@@ -147,9 +149,10 @@ public class CinematicBackgroundManager {
                 // rotation interval. Decode it immediately after discovery, off the UI thread.
                 mainHandler.post(() -> {
                     if (!isVisible || destroyed) return;
-                    if (preferredBackground != null && preferredBackground.isFile()
-                            && images.contains(preferredBackground)) {
-                        showWallpaper(preferredBackground);
+                    File preferred = pendingPreferredBackground;
+                    if (preferred != null && preferred.isFile() && images.contains(preferred)) {
+                        pendingPreferredBackground = null;
+                        showWallpaper(preferred);
                     } else if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
                         rotateToNext();
                     } else {
@@ -308,7 +311,9 @@ public class CinematicBackgroundManager {
         workGeneration.incrementAndGet();
         // On cold start, show the first real wallpaper as soon as the local queue is ready.
         // Once one has loaded, preserve the current image and resume normal timed rotation.
-        if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
+        if (pendingPreferredBackground != null && pendingPreferredBackground.isFile()) {
+            loadLocalBackgrounds(pendingPreferredBackground);
+        } else if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
             rotateToNext();
         } else {
             scheduleRotationIfAvailable();
