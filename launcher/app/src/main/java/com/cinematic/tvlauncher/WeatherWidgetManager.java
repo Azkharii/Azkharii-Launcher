@@ -52,7 +52,6 @@ public final class WeatherWidgetManager {
     private static final String KEY_PERMISSION_ASKED = "weather_location_permission_asked";
     private static final String KEY_SUMMARY = "weather_summary";
     private static final String KEY_LOCATION = "weather_location";
-    private static final String KEY_UPDATED = "weather_updated_at";
     private static final String KEY_LATITUDE = "weather_cached_latitude";
     private static final String KEY_LONGITUDE = "weather_cached_longitude";
     private static final String KEY_WEATHER_CODE = "weather_code";
@@ -444,7 +443,7 @@ public final class WeatherWidgetManager {
                             .putBoolean(KEY_IS_DAY, isDay)
                             .putFloat(KEY_LATITUDE, (float) location.getLatitude())
                             .putFloat(KEY_LONGITUDE, (float) location.getLongitude())
-                            .putLong(KEY_UPDATED, System.currentTimeMillis()).apply();
+                            .apply();
                     mainHandler.post(() -> {
                         if (!closed && !paused && requestGeneration == weatherGeneration) {
                             render(summary, place);
