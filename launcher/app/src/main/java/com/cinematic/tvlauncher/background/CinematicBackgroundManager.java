@@ -40,8 +40,8 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class CinematicBackgroundManager {
     private static final String TAG = "CinematicBackgroundMgr";
-    private static final int MAX_WALLPAPER_DECODE_WIDTH = 2560;
-    private static final int MAX_WALLPAPER_DECODE_HEIGHT = 1440;
+    private static final int MAX_WALLPAPER_DECODE_WIDTH = 2048;
+    private static final int MAX_WALLPAPER_DECODE_HEIGHT = 1152;
 
     private final Activity activity;
     private final ImageView imageViewA;
@@ -338,8 +338,10 @@ public class CinematicBackgroundManager {
                 currentWallpaperFile = null;
                 hasRealWallpaperLoaded = false;
                 isFrontA = true;
+                // Only the visible fallback layer needs the default bitmap. Keep the
+                // transparent incoming layer empty until the next wallpaper is ready.
                 clearWallpaperLayer(imageViewA, true);
-                clearWallpaperLayer(imageViewB, true);
+                clearWallpaperLayer(imageViewB, false);
                 imageViewA.setAlpha(1f);
                 imageViewB.setAlpha(0f);
                 imageViewA.setScaleX(1f);
@@ -580,7 +582,12 @@ public class CinematicBackgroundManager {
             if (decoded != null) {
                 Log.i(TAG, "Wallpaper decode "
                         + decoded.getWidth() + "x" + decoded.getHeight()
-                        + " took " + (SystemClock.elapsedRealtime() - startedAt) + " ms");
+                        + " allocation=" + decoded.getAllocationByteCount()
+                        + "B config=" + decoded.getConfig()
+                        + " target=" + reqWidth + "x" + reqHeight
+                        + " display=" + activity.getResources().getDisplayMetrics().widthPixels
+                        + "x" + activity.getResources().getDisplayMetrics().heightPixels
+                        + " elapsed=" + (SystemClock.elapsedRealtime() - startedAt) + "ms");
             }
             return decoded;
         } catch (Exception e) {
