@@ -11,7 +11,7 @@ public class TestMain {
         System.out.println("  Cinematic Android TV Launcher - Unit Test Suite ");
         System.out.println("==================================================");
 
-        int totalSuites = 11;
+        int totalSuites = 12;
         int passedSuites = 0;
 
         try {
@@ -111,6 +111,15 @@ public class TestMain {
             passedSuites++;
         } catch (Throwable t) {
             System.err.println("  [FAIL] WallpaperCropPolicyTest: " + t.getMessage());
+            t.printStackTrace();
+        }
+
+        try {
+            System.out.println("12. Running ContinueWatchingPerformancePolicyTest (poster decode and refresh bounds)...");
+            ContinueWatchingPerformancePolicyTest.runTests();
+            passedSuites++;
+        } catch (Throwable t) {
+            System.err.println("  [FAIL] ContinueWatchingPerformancePolicyTest: " + t.getMessage());
             t.printStackTrace();
         }
 

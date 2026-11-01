@@ -442,3 +442,24 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 
 **Resultado de CI para esta revisión:** pendiente al crear el PR.  
 **Instalación y validación física en Hisense:** no ejecutadas todavía. No marcar como PASS hasta confirmar comportamiento en el televisor.
+
+
+## Seguimiento de CPU de Continuar viendo y pausa de fondos — 2026-11-01
+
+### Síntoma del dispositivo
+
+El usuario reportó picos de 110–130% de CPU durante desplazamiento continuo de «Continuar viendo», frente a ~34% en una secuencia anterior comparable. También reportó consumo alto durante los cambios automáticos de fondo. No se ha recibido todavía una captura sincronizada de `top`, CPU de hilos y logs de decodificación durante el desplazamiento.
+
+### Cambios realizados en esta revisión
+
+| Área | Modificación | Evidencia automatizada | Verificación física |
+|---|---|---|---|
+| Ruleta Continuar viendo | Un worker de póster con prioridad de fondo en lugar de tres workers de prioridad normal | Revisión de fuente y build CI | Pendiente |
+| Pósteres | Máximo 320×180 en lugar de 640×360 | Nueva política pura Java con casos 1080p/720p/360p | Pendiente de CI |
+| Paleta de póster | Un muestreo 24×18 de una sola pasada en lugar de varias lecturas de zonas | Revisión de fuente y build CI | Pendiente |
+| Consultas Watch Next | Intervalo mínimo 5 s en lugar de 1,2 s | Assert del intervalo en la nueva prueba | Pendiente |
+| Diagnóstico | Log DEBUG con tiempo de pared y tiempo CPU de hilo para proveedor/póster/paleta | Build Debug | Pendiente de observación en TV |
+| Pausa de fondos | Casilla persistente; detiene temporizador y decodificación automática, guarda la ruta del fondo visible/seleccionado y permite selección manual | Revisión del ciclo de vida y build CI | Pendiente de uso real |
+| Reanudación de fondos | Al desmarcar, elimina el anclaje fijo y rearma el timer normal de 20 s | Revisión de fuente | Pendiente de uso real |
+
+**No se declara resuelto el pico de CPU de la ruleta ni el coste del cambio individual de fondo hasta repetir la secuencia en el televisor.** La reducción del paralelismo y del trabajo por póster tiene una causa fuente concreta; la magnitud real de la mejora requiere la medición de Hisense.
