@@ -3,6 +3,9 @@ package com.cinematic.tvlauncher;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
+import android.content.BroadcastReceiver;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.location.Address;
 import android.location.Geocoder;
@@ -16,6 +19,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.TextUtils;
 import android.util.Log;
@@ -49,11 +53,11 @@ public final class WeatherWidgetManager {
     private static final String KEY_SUMMARY = "weather_summary";
     private static final String KEY_LOCATION = "weather_location";
     private static final String KEY_UPDATED = "weather_updated_at";
-    private static final String KEY_LAST_ATTEMPT = "weather_last_attempt_at";
     private static final String KEY_LATITUDE = "weather_cached_latitude";
     private static final String KEY_LONGITUDE = "weather_cached_longitude";
     private static final String KEY_WEATHER_CODE = "weather_code";
     private static final String KEY_FEELS_LIKE = "weather_feels_like";
+    private static final String KEY_IS_DAY = "weather_is_day";
     private int adviceRotationIndex;
     private static final long LOCATION_MAX_AGE_MS = 60L * 60L * 1000L;
 
@@ -61,6 +65,7 @@ public final class WeatherWidgetManager {
     private final TextView label;
     private final SharedPreferences preferences;
     private final ConnectivityManager connectivityManager;
+    private final PowerManager powerManager;
     private final ExecutorService executor =
             new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -69,18 +74,35 @@ public final class WeatherWidgetManager {
     private Runnable locationTimeout;
     private volatile boolean closed;
     private volatile boolean paused = true;
+    private boolean activityResumed;
+    private boolean screenOn = true;
+    private boolean screenReceiverRegistered;
     private volatile boolean weatherRequestInProgress;
     private volatile long weatherGeneration;
     private volatile HttpURLConnection activeConnection;
     private volatile Future<?> weatherTask;
     // Defer access to constructor-initialized fields until the callback is actually run.
     private final Runnable adviceRotationRunnable = this::rotateAdvice;
+    private final BroadcastReceiver screenStateReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (intent == null) return;
+            String action = intent.getAction();
+            if (Intent.ACTION_SCREEN_OFF.equals(action)) {
+                screenOn = false;
+                stopWeatherWork();
+            } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
+                screenOn = true;
+                if (activityResumed && !closed) refreshIfAllowed();
+            }
+        }
+    };
 
     public WeatherWidgetManager(Activity activity, TextView label) {
         this.activity = activity;
         this.label = label;
         preferences = activity.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         connectivityManager = (ConnectivityManager) activity.getSystemService(Context.CONNECTIVITY_SERVICE);
+        powerManager = (PowerManager) activity.getSystemService(Context.POWER_SERVICE);
         if (label != null) {
             label.setCompoundDrawablesRelative(null, null, null, null);
             label.setCompoundDrawablePadding(0);
@@ -91,19 +113,59 @@ public final class WeatherWidgetManager {
 
     public void refreshIfAllowed() {
         if (closed || label == null) return;
+        activityResumed = true;
+        registerScreenStateReceiver();
+        screenOn = powerManager == null || powerManager.isInteractive();
+        if (!screenOn) {
+            stopWeatherWork();
+            return;
+        }
+
         paused = false;
+        // Cached temperature remains visible while a fresh request starts. Its day/night
+        // wording is recalculated immediately so yesterday's "Día soleado" cannot survive
+        // a return to the launcher after sunset.
+        preferences.edit().putBoolean(KEY_IS_DAY, isDaytimeFromLocalClock()).apply();
         showCachedOrPrompt();
         scheduleAdviceRotation();
-        if (!hasLocationPermission()) return;
-        // Read the persisted timestamp first; a fresh cache does not even need a connectivity query.
-        long lastAttempt = preferences.getLong(KEY_LAST_ATTEMPT,
-                preferences.getLong(KEY_UPDATED, 0L));
-        if (!WeatherRefreshPolicy.isRefreshDue(lastAttempt, System.currentTimeMillis())) return;
+
+        // The cache is a display fallback only: every launcher/screen return requests
+        // current conditions rather than inheriting a persisted 50-minute countdown.
+        if (!WeatherRefreshPolicy.shouldRefreshOnLauncherResume() || !hasLocationPermission()) return;
         if (!hasValidatedInternet()) {
             showCachedOrUnavailable();
             return;
         }
         requestLocation();
+    }
+
+    private void registerScreenStateReceiver() {
+        if (screenReceiverRegistered || closed) return;
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_SCREEN_OFF);
+        filter.addAction(Intent.ACTION_SCREEN_ON);
+        try {
+            activity.registerReceiver(screenStateReceiver, filter);
+            screenReceiverRegistered = true;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "Screen state receiver could not be registered", e);
+        }
+    }
+
+    private void unregisterScreenStateReceiver() {
+        if (!screenReceiverRegistered) return;
+        try {
+            activity.unregisterReceiver(screenStateReceiver);
+        } catch (RuntimeException e) {
+            Log.d(TAG, "Screen state receiver was already unregistered", e);
+        } finally {
+            screenReceiverRegistered = false;
+        }
+    }
+
+    private boolean isDaytimeFromLocalClock() {
+        int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+        return hour >= 6 && hour < 18;
     }
 
     public boolean handlesPermissionRequest(int requestCode) {
@@ -143,8 +205,15 @@ public final class WeatherWidgetManager {
         }
     }
 
-    /** Stop location and network work as soon as another app covers the launcher. */
+    /** Stop weather work when another app covers the launcher. */
     public void onPause() {
+        activityResumed = false;
+        unregisterScreenStateReceiver();
+        stopWeatherWork();
+    }
+
+    /** Also used when the display turns off without a full Activity pause. */
+    private void stopWeatherWork() {
         paused = true;
         ++weatherGeneration;
         mainHandler.removeCallbacks(adviceRotationRunnable);
@@ -184,8 +253,7 @@ public final class WeatherWidgetManager {
             showCachedOrUnavailable();
             return;
         }
-        // An explicit tap requests a refresh; ordinary resume remains rate-limited.
-        preferences.edit().putLong(KEY_LAST_ATTEMPT, 0L).apply();
+        // A deliberate tap refreshes immediately, just like returning to the launcher.
         requestLocation();
     }
 
@@ -227,8 +295,6 @@ public final class WeatherWidgetManager {
             showCachedOrUnavailable();
             return;
         }
-        // Record the attempt before waiting for location so failures do not cause work on every resume.
-        preferences.edit().putLong(KEY_LAST_ATTEMPT, System.currentTimeMillis()).apply();
         LocationManager manager = (LocationManager) activity.getSystemService(Context.LOCATION_SERVICE);
         if (manager == null) {
             showUnavailable("Ubicación no disponible");
@@ -339,7 +405,7 @@ public final class WeatherWidgetManager {
                             || Thread.currentThread().isInterrupted() || !hasValidatedInternet()) return;
                     String query = String.format(Locale.US,
                             "https://api.open-meteo.com/v1/forecast?latitude=%.5f&longitude=%.5f"
-                                    + "&current=temperature_2m,apparent_temperature,weather_code&temperature_unit=celsius&timezone=auto",
+                                    + "&current=temperature_2m,apparent_temperature,weather_code,is_day&temperature_unit=celsius&timezone=auto",
                             location.getLatitude(), location.getLongitude());
                     connection = (HttpURLConnection) new URL(query).openConnection();
                     activeConnection = connection;
@@ -364,6 +430,9 @@ public final class WeatherWidgetManager {
                     int temperature = (int) Math.round(current.getDouble("temperature_2m"));
                     int feelsLike = (int) Math.round(current.optDouble("apparent_temperature", temperature));
                     int weatherCode = current.optInt("weather_code", -1);
+                    int isDayValue = current.optInt("is_day", -1);
+                    boolean isDay = isDayValue == 1
+                            || (isDayValue != 0 && isDaytimeFromLocalClock());
                     String summary = temperature + "°C";
                     String place = TextUtils.isEmpty(city) ? "Ubicación automática" : city;
                     if (closed || paused || requestGeneration != weatherGeneration
@@ -372,6 +441,7 @@ public final class WeatherWidgetManager {
                             .putString(KEY_LOCATION, place)
                             .putInt(KEY_WEATHER_CODE, weatherCode)
                             .putInt(KEY_FEELS_LIKE, feelsLike)
+                            .putBoolean(KEY_IS_DAY, isDay)
                             .putFloat(KEY_LATITUDE, (float) location.getLatitude())
                             .putFloat(KEY_LONGITUDE, (float) location.getLongitude())
                             .putLong(KEY_UPDATED, System.currentTimeMillis()).apply();
@@ -468,7 +538,9 @@ public final class WeatherWidgetManager {
         int temperatureC = parseTemperature(temperature);
         int feelsLikeC = preferences.getInt(KEY_FEELS_LIKE, temperatureC);
         int weatherCode = preferences.getInt(KEY_WEATHER_CODE, -1);
-        String[] advice = WeatherAdvicePolicy.phrasesFor(temperatureC, feelsLikeC, weatherCode);
+        boolean isDay = preferences.getBoolean(KEY_IS_DAY, isDaytimeFromLocalClock());
+        String[] advice = WeatherAdvicePolicy.phrasesFor(
+                temperatureC, feelsLikeC, weatherCode, isDay);
         String phrase = advice[adviceRotationIndex % advice.length];
         label.setText(temperature + " · " + phrase + "\n" + location);
         label.setContentDescription("Clima actual: " + temperature + ". " + phrase
