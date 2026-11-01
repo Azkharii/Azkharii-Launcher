@@ -7,8 +7,10 @@ import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BitmapRegionDecoder;
 import android.graphics.ImageDecoder;
 import android.graphics.Rect;
+import android.media.ExifInterface;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -528,9 +530,46 @@ public class CinematicBackgroundManager {
      * Decode close to the TV viewport. Reuse a validated on-disk derivative after first display;
      * otherwise resize during decode on API 28+, with a sampled BitmapFactory fallback on API 26–27.
      */
+    private boolean isJpegFile(File file) {
+        String name = file.getName().toLowerCase(java.util.Locale.ROOT);
+        return name.endsWith(".jpg") || name.endsWith(".jpeg");
+    }
+
     /**
-     * Decode only the pixels required by the TV viewport. Do not re-encode the result here:
-     * compression during rotation was adding a second CPU-heavy pass to every cache miss.
+     * BitmapRegionDecoder can return opaque JPEGs in RGB_565, using half the pixel memory of
+     * ARGB_8888. Only normal-orientation JPEGs use this route; other EXIF orientations fall
+     * through to ImageDecoder so their displayed rotation remains correct.
+     */
+    private Bitmap decodeOpaqueJpegRegion(File file, int reqWidth, int reqHeight)
+            throws java.io.IOException {
+        ExifInterface exif = new ExifInterface(file.getAbsolutePath());
+        int orientation = exif.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_UNDEFINED);
+        if (orientation != ExifInterface.ORIENTATION_NORMAL) return null;
+
+        BitmapRegionDecoder regionDecoder = null;
+        try {
+            regionDecoder = BitmapRegionDecoder.newInstance(file.getAbsolutePath(), false);
+            int sourceWidth = regionDecoder.getWidth();
+            int sourceHeight = regionDecoder.getHeight();
+            int[] bounds = WallpaperCropPolicy.centerCropRect(
+                    sourceWidth, sourceHeight, reqWidth, reqHeight);
+            Rect crop = new Rect(bounds[0], bounds[1], bounds[2], bounds[3]);
+
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inSampleSize = WallpaperCropPolicy.calculateRegionSampleSize(
+                    crop.width(), crop.height(), reqWidth, reqHeight);
+            options.inPreferredConfig = Bitmap.Config.RGB_565;
+            options.inDither = true;
+            return regionDecoder.decodeRegion(crop, options);
+        } finally {
+            if (regionDecoder != null) regionDecoder.recycle();
+        }
+    }
+
+    /**
+     * Decode only the pixels required by the TV viewport. Opaque normal-orientation JPEGs use
+     * a cropped RGB_565 region; images that require alpha/EXIF handling use ImageDecoder.
      */
     private Bitmap decodeSampledBitmap(File file) {
         long startedAt = SystemClock.elapsedRealtime();
@@ -538,9 +577,17 @@ public class CinematicBackgroundManager {
             if (Thread.currentThread().isInterrupted() || destroyed) return null;
             int reqWidth = wallpaperTargetWidth();
             int reqHeight = wallpaperTargetHeight();
-            Bitmap decoded;
+            Bitmap decoded = null;
 
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            if (isJpegFile(file)) {
+                try {
+                    decoded = decodeOpaqueJpegRegion(file, reqWidth, reqHeight);
+                } catch (Exception e) {
+                    Log.w(TAG, "JPEG region decode unavailable; falling back to ImageDecoder", e);
+                }
+            }
+
+            if (decoded == null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                 ImageDecoder.Source source = ImageDecoder.createSource(file);
                 decoded = ImageDecoder.decodeBitmap(source, (decoder, info, sourceIgnored) -> {
                     if (Thread.currentThread().isInterrupted() || destroyed) {
@@ -549,14 +596,11 @@ public class CinematicBackgroundManager {
                     }
                     int sourceWidth = Math.max(1, info.getSize().getWidth());
                     int sourceHeight = Math.max(1, info.getSize().getHeight());
-                    int[] cropBounds = WallpaperCropPolicy.centerCropRect(
+                    int[] bounds = WallpaperCropPolicy.centerCropRect(
                             sourceWidth, sourceHeight, reqWidth, reqHeight);
-                    Rect crop = new Rect(cropBounds[0], cropBounds[1],
-                            cropBounds[2], cropBounds[3]);
+                    Rect crop = new Rect(bounds[0], bounds[1], bounds[2], bounds[3]);
                     int cropWidth = Math.max(1, crop.width());
                     int cropHeight = Math.max(1, crop.height());
-                    // Crop to the same 16:9-style viewport that ImageView.CENTER_CROP displays.
-                    // This avoids decoding excess top/bottom pixels from portrait/4:3 photos.
                     double scale = Math.min(1d, Math.min(
                             reqWidth / (double) cropWidth,
                             reqHeight / (double) cropHeight));
@@ -567,7 +611,7 @@ public class CinematicBackgroundManager {
                     decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
                     decoder.setMemorySizePolicy(ImageDecoder.MEMORY_POLICY_LOW_RAM);
                 });
-            } else {
+            } else if (decoded == null) {
                 BitmapFactory.Options options = new BitmapFactory.Options();
                 options.inJustDecodeBounds = true;
                 BitmapFactory.decodeFile(file.getAbsolutePath(), options);
