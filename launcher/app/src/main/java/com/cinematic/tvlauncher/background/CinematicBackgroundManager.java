@@ -11,6 +11,7 @@ import android.graphics.ImageDecoder;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.animation.AccelerateDecelerateInterpolator;
@@ -20,7 +21,6 @@ import com.cinematic.tvlauncher.R;
 import com.cinematic.tvlauncher.config.LauncherConfig;
 
 import java.io.File;
-import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -31,8 +31,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
-import java.security.MessageDigest;
-import java.nio.charset.StandardCharsets;
 
 /**
  * CinematicBackgroundManager — Controls local wallpaper rotation, viewport-sized decoding,
@@ -41,8 +39,6 @@ import java.nio.charset.StandardCharsets;
  */
 public class CinematicBackgroundManager {
     private static final String TAG = "CinematicBackgroundMgr";
-    private static final String WALLPAPER_PREVIEW_CACHE_DIR = "wallpaper-preview-v2";
-    private static final long MAX_WALLPAPER_PREVIEW_CACHE_BYTES = 48L * 1024L * 1024L;
     private static final int MAX_WALLPAPER_DECODE_WIDTH = 2560;
     private static final int MAX_WALLPAPER_DECODE_HEIGHT = 1440;
 
@@ -60,6 +56,7 @@ public class CinematicBackgroundManager {
     private boolean isFrontA = true;
     private AnimatorSet crossfadeAnimator;
     private Future<?> pendingDecode;
+    private volatile Future<?> pendingLocalBackgroundLoad;
     private final AtomicLong workGeneration = new AtomicLong();
     private final AtomicLong localBackgroundLoadGeneration = new AtomicLong();
     private boolean hasRealWallpaperLoaded = false;
@@ -129,10 +126,11 @@ public class CinematicBackgroundManager {
         if (destroyed) return;
         if (preferredBackground != null) pendingPreferredBackground = preferredBackground;
         final long loadGeneration = localBackgroundLoadGeneration.incrementAndGet();
+        cancelPendingLocalBackgroundLoad();
         try {
-            decodeExecutor.execute(() -> {
+            pendingLocalBackgroundLoad = decodeExecutor.submit(() -> {
             try {
-                java.util.List<File> images = new java.util.ArrayList<>();
+                List<File> images = new ArrayList<>();
                 File privatePictures = new File(activity.getFilesDir(), "CinematicBackgrounds");
                 addImagesFromDirectory(privatePictures, images);
 
@@ -171,6 +169,10 @@ public class CinematicBackgroundManager {
                 });
             } catch (Exception e) {
                 Log.w(TAG, "Error discovering local background photos", e);
+            } finally {
+                if (loadGeneration == localBackgroundLoadGeneration.get()) {
+                    pendingLocalBackgroundLoad = null;
+                }
             }
             });
         } catch (java.util.concurrent.RejectedExecutionException ignored) {
@@ -221,14 +223,25 @@ public class CinematicBackgroundManager {
     }
 
     /** Cancels both running and queued decode work; retains the cached displayed bitmap. */
-    private void cancelPendingDecode() {
-        Future<?> task = pendingDecode;
-        pendingDecode = null;
+    private void cancelDecodeTask(Future<?> task) {
         if (task == null) return;
         task.cancel(true);
         if (task instanceof Runnable && decodeExecutor instanceof ThreadPoolExecutor) {
             ((ThreadPoolExecutor) decodeExecutor).remove((Runnable) task);
         }
+    }
+
+    private void cancelPendingDecode() {
+        Future<?> task = pendingDecode;
+        pendingDecode = null;
+        cancelDecodeTask(task);
+    }
+
+    /** A newer directory scan supersedes an older pending scan; do not queue redundant work. */
+    private void cancelPendingLocalBackgroundLoad() {
+        Future<?> task = pendingLocalBackgroundLoad;
+        pendingLocalBackgroundLoad = null;
+        cancelDecodeTask(task);
     }
 
     /** Cancels an in-flight crossfade and restores the last fully displayed layer. */
@@ -299,10 +312,7 @@ public class CinematicBackgroundManager {
             if (currentWallpaperFile != null) {
                 deletingCurrent = canonicalFile.equals(currentWallpaperFile.getCanonicalFile());
             }
-            File previewCache = wallpaperPreviewCacheFile(canonicalFile,
-                    wallpaperTargetWidth(), wallpaperTargetHeight());
             if (!canonicalFile.delete()) return false;
-            if (previewCache != null) previewCache.delete();
             queue.removeImage(file);
 
             if (deletingCurrent) {
@@ -472,35 +482,6 @@ public class CinematicBackgroundManager {
         return Math.min(height, MAX_WALLPAPER_DECODE_HEIGHT);
     }
 
-    private File wallpaperPreviewCacheFile(File source, int targetWidth, int targetHeight) {
-        if (source == null) return null;
-        try {
-            File cacheDirectory = new File(activity.getCacheDir(), WALLPAPER_PREVIEW_CACHE_DIR);
-            String identity = source.getCanonicalPath() + "|" + source.length() + "|"
-                    + source.lastModified() + "|" + targetWidth + "x" + targetHeight + "|v2";
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(identity.getBytes(StandardCharsets.UTF_8));
-            StringBuilder key = new StringBuilder(digest.length * 2);
-            for (byte value : digest) {
-                key.append(String.format(java.util.Locale.ROOT, "%02x", value & 0xff));
-            }
-            return new File(cacheDirectory, key + ".webp");
-        } catch (Exception e) {
-            Log.w(TAG, "Could not identify wallpaper preview cache entry", e);
-            return null;
-        }
-    }
-
-    private Bitmap decodeCachedWallpaperPreview(File previewFile) {
-        if (previewFile == null || !previewFile.isFile() || previewFile.length() <= 0) return null;
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        // WebP previews preserve alpha for transparent PNG/WebP wallpapers.
-        options.inPreferredConfig = Bitmap.Config.ARGB_8888;
-        Bitmap cached = BitmapFactory.decodeFile(previewFile.getAbsolutePath(), options);
-        if (cached != null) previewFile.setLastModified(System.currentTimeMillis());
-        return cached;
-    }
-
     /**
      * Keep the two wallpaper layers in adjacent child positions, still below the scrims and
      * application UI. This preserves overlay compositing when A/B alternate as the new image.
@@ -523,17 +504,18 @@ public class CinematicBackgroundManager {
      * Decode close to the TV viewport. Reuse a validated on-disk derivative after first display;
      * otherwise resize during decode on API 28+, with a sampled BitmapFactory fallback on API 26–27.
      */
+    /**
+     * Decode only the pixels required by the TV viewport. Do not re-encode the result here:
+     * compression during rotation was adding a second CPU-heavy pass to every cache miss.
+     */
     private Bitmap decodeSampledBitmap(File file) {
+        long startedAt = SystemClock.elapsedRealtime();
         try {
             if (Thread.currentThread().isInterrupted() || destroyed) return null;
             int reqWidth = wallpaperTargetWidth();
             int reqHeight = wallpaperTargetHeight();
-            File previewFile = wallpaperPreviewCacheFile(file, reqWidth, reqHeight);
-            Bitmap cached = decodeCachedWallpaperPreview(previewFile);
-            if (cached != null) return cached;
-            if (previewFile != null && previewFile.exists()) previewFile.delete();
-
             Bitmap decoded;
+
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                 ImageDecoder.Source source = ImageDecoder.createSource(file);
                 decoded = ImageDecoder.decodeBitmap(source, (decoder, info, sourceIgnored) -> {
@@ -543,9 +525,9 @@ public class CinematicBackgroundManager {
                     }
                     int sourceWidth = Math.max(1, info.getSize().getWidth());
                     int sourceHeight = Math.max(1, info.getSize().getHeight());
-                    double scale = Math.max(reqWidth / (double) sourceWidth,
-                            reqHeight / (double) sourceHeight);
-                    scale = Math.min(1d, scale);
+                    double scale = Math.min(1d, Math.max(
+                            reqWidth / (double) sourceWidth,
+                            reqHeight / (double) sourceHeight));
                     int targetWidth = Math.max(1, (int) Math.ceil(sourceWidth * scale));
                     int targetHeight = Math.max(1, (int) Math.ceil(sourceHeight * scale));
                     decoder.setTargetSize(targetWidth, targetHeight);
@@ -564,70 +546,15 @@ public class CinematicBackgroundManager {
                 decoded = BitmapFactory.decodeFile(file.getAbsolutePath(), options);
             }
 
-            // The first decode is cached on the same worker. Later rotations decode only this
-            // viewport-sized WebP derivative instead of repeatedly parsing the original photo.
-            cacheWallpaperPreview(decoded, previewFile);
+            if (decoded != null) {
+                Log.i(TAG, "Wallpaper decode "
+                        + decoded.getWidth() + "x" + decoded.getHeight()
+                        + " took " + (SystemClock.elapsedRealtime() - startedAt) + " ms");
+            }
             return decoded;
         } catch (Exception e) {
             Log.e(TAG, "Failed to decode background image: " + file.getName(), e);
             return null;
-        }
-    }
-
-    private void cacheWallpaperPreview(Bitmap bitmap, File previewFile) {
-        if (bitmap == null || previewFile == null || previewFile.isFile()
-                || Thread.currentThread().isInterrupted() || destroyed) return;
-        File directory = previewFile.getParentFile();
-        if (directory == null || (!directory.isDirectory() && !directory.mkdirs())) return;
-
-        File temporaryFile = new File(directory,
-                previewFile.getName() + ".tmp-" + Thread.currentThread().getId());
-        try (FileOutputStream output = new FileOutputStream(temporaryFile)) {
-            if (!bitmap.compress(Bitmap.CompressFormat.WEBP, 86, output)) {
-                temporaryFile.delete();
-                return;
-            }
-            output.flush();
-        } catch (Exception e) {
-            temporaryFile.delete();
-            Log.d(TAG, "Wallpaper preview cache write skipped", e);
-            return;
-        }
-
-        if (Thread.currentThread().isInterrupted() || destroyed) {
-            temporaryFile.delete();
-            return;
-        }
-        if (previewFile.exists() && !previewFile.delete()) {
-            temporaryFile.delete();
-            return;
-        }
-        if (!temporaryFile.renameTo(previewFile)) {
-            temporaryFile.delete();
-            return;
-        }
-        trimWallpaperPreviewCache(directory, previewFile);
-    }
-
-    /** Bounds the on-disk derivative cache so imported photos cannot grow it indefinitely. */
-    private void trimWallpaperPreviewCache(File directory, File newestFile) {
-        File[] files = directory.listFiles((parent, name) -> name.endsWith(".webp"));
-        if (files == null || files.length < 2) return;
-        List<File> oldestFirst = new ArrayList<>();
-        long totalBytes = 0L;
-        for (File file : files) {
-            if (file.isFile()) {
-                oldestFirst.add(file);
-                totalBytes += file.length();
-            }
-        }
-        if (totalBytes <= MAX_WALLPAPER_PREVIEW_CACHE_BYTES) return;
-        Collections.sort(oldestFirst, Comparator.comparingLong(File::lastModified));
-        for (File file : oldestFirst) {
-            if (totalBytes <= MAX_WALLPAPER_PREVIEW_CACHE_BYTES) break;
-            if (file.equals(newestFile)) continue;
-            long length = file.length();
-            if (file.delete()) totalBytes -= length;
         }
     }
 
