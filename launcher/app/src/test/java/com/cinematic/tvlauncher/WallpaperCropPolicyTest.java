@@ -112,6 +112,7 @@ public class WallpaperCropPolicyTest {
         File file = null;
         try {
             file = File.createTempFile("cinematic-png-policy-", ".png");
+            file.deleteOnExit();
             ByteArrayOutputStream bytes = new ByteArrayOutputStream();
             try (DataOutputStream output = new DataOutputStream(bytes)) {
                 output.write(new byte[] {

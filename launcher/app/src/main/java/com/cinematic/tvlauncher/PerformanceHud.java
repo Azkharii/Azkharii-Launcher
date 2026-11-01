@@ -16,8 +16,8 @@ import android.widget.TextView;
 
 
 /**
- * Tiny foreground-only diagnostic HUD. Samples process CPU and PSS every three seconds;
- * it is stopped whenever the launcher is not in the foreground.
+ * Tiny foreground-only diagnostic HUD. Samples process CPU every three seconds and PSS
+ * every fifteen seconds; it is stopped whenever the launcher is not in the foreground.
  */
 final class PerformanceHud {
     private static final long SAMPLE_INTERVAL_MS = 3000L;
