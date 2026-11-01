@@ -57,6 +57,7 @@ public class CinematicBackgroundManager {
     private AnimatorSet crossfadeAnimator;
     private Future<?> pendingDecode;
     private volatile Future<?> pendingLocalBackgroundLoad;
+    private volatile boolean localBackgroundsLoaded;
     private final AtomicLong workGeneration = new AtomicLong();
     private final AtomicLong localBackgroundLoadGeneration = new AtomicLong();
     private boolean hasRealWallpaperLoaded = false;
@@ -146,6 +147,7 @@ public class CinematicBackgroundManager {
                 if (destroyed || Thread.currentThread().isInterrupted()
                         || loadGeneration != localBackgroundLoadGeneration.get()) return;
                 queue.setImages(images);
+                localBackgroundsLoaded = true;
                 if (currentWallpaperFile != null && currentWallpaperFile.isFile()) {
                     queue.markDisplayed(currentWallpaperFile);
                 }
@@ -181,10 +183,12 @@ public class CinematicBackgroundManager {
     }
 
     private void addImagesFromDirectory(File directory, List<File> images) {
-        if (directory == null || !directory.isDirectory()) return;
+        if (Thread.currentThread().isInterrupted() || directory == null
+                || !directory.isDirectory()) return;
         File[] files = directory.listFiles();
         if (files == null) return;
         for (File file : files) {
+            if (Thread.currentThread().isInterrupted()) return;
             if (isSupportedImage(file) && !images.contains(file)) images.add(file);
         }
     }
@@ -352,12 +356,18 @@ public class CinematicBackgroundManager {
         }
         if (pendingPreferredBackground != null) {
             loadLocalBackgrounds(pendingPreferredBackground);
+        } else if (!localBackgroundsLoaded && !isLocalBackgroundLoadPending()) {
+            loadLocalBackgrounds();
         } else if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
             rotateToNext();
         } else {
             scheduleRotationIfAvailable();
         }
+    }
 
+    private boolean isLocalBackgroundLoadPending() {
+        Future<?> task = pendingLocalBackgroundLoad;
+        return task != null && !task.isDone();
     }
 
     public void onPause() {
@@ -365,6 +375,11 @@ public class CinematicBackgroundManager {
         workGeneration.incrementAndGet();
         mainHandler.removeCallbacks(rotationRunnable);
         cancelPendingDecode();
+        if (isLocalBackgroundLoadPending()) {
+            localBackgroundsLoaded = false;
+        }
+        localBackgroundLoadGeneration.incrementAndGet();
+        cancelPendingLocalBackgroundLoad();
         cancelCrossfadeAnimation();
     }
 
@@ -463,11 +478,6 @@ public class CinematicBackgroundManager {
         crossfade.start();
     }
 
-    /**
-     * Decode near the TV viewport. Reuse a compatible preview already on disk (including one
-     * left by an earlier version); otherwise resize during decode to avoid a large intermediate
-     * bitmap and a second scaled copy.
-     */
     private int wallpaperTargetWidth() {
         DisplayMetrics metrics = activity.getResources().getDisplayMetrics();
         int width = metrics.widthPixels > 0 ? metrics.widthPixels : 1920;
