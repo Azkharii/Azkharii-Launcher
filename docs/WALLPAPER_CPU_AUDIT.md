@@ -10,6 +10,9 @@ The exact CPU percentage caused by each stage must be measured on the Hisense TV
 
 - Removed the per-rotation preview cache completely: no WebP compression, hashing, preview reads/writes, temporary files, or cache trimming occurs when a wallpaper changes.
 - Kept the existing 20-second rotation cadence, two ImageView layers, 160 ms single-layer fade, wallpaper order, original imported files, and image crossfade.
+- Reduced the maximum decoded surface from 2560×1440 to 2048×1152. With ARGB_8888 this bounds one wallpaper bitmap to 9 MiB and the two simultaneously held transition layers to about 18 MiB, versus about 14 MiB and 28 MiB at the previous cap (about 36% less bitmap allocation during a full two-layer transition). Actual PSS still includes other process/native/graphics allocations and is measured on device.
+- Removed the duplicate default-wallpaper source from the initially transparent second ImageView and from the inactive layer restored after deleting the current photo. Only the visible fallback layer carries the default bitmap.
+- Wallpaper decoder logs now include actual allocation bytes, bitmap config, decoded dimensions, requested size, display metrics, and elapsed decode time.
 - Added WallpaperCropPolicy, which calculates the centered crop matching ImageView.CENTER_CROP. On API 28+, ImageDecoder receives this crop and a bounded output size up to 2560×1440. This avoids producing pixels that the view immediately discards from portrait, 4:3, or ultra-wide photos. Older API fallback remains unchanged.
 - Added timing logs for decode dimensions/duration (CinematicBackgroundMgr) and adaptive HUD palette sampling (MainActivity) so a TV log can distinguish image decode cost from the smaller colour-sampling step.
 - The wallpaper worker now runs at Android background thread priority, yielding to the UI thread and foreground work on constrained TV hardware. This improves scheduling fairness; it does not by itself eliminate decoder CPU time.
