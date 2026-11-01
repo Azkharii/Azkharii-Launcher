@@ -699,7 +699,10 @@ public class TvControlManager {
                 Uri uri = clip.getItemAt(i).getUri();
                 if (uri != null) selected.add(uri);
             }
-        } else if (data.getData() != null) {
+        }
+        // Some document providers populate both ClipData and the primary data URI,
+        // while others expose only the primary URI even when ClipData is present.
+        if (selected.isEmpty() && data.getData() != null) {
             selected.add(data.getData());
         }
         if (selected.isEmpty()) {
