@@ -11,7 +11,7 @@ public class TestMain {
         System.out.println("  Cinematic Android TV Launcher - Unit Test Suite ");
         System.out.println("==================================================");
 
-        int totalSuites = 9;
+        int totalSuites = 10;
         int passedSuites = 0;
 
         try {
@@ -24,7 +24,16 @@ public class TestMain {
         }
 
         try {
-            System.out.println("2. Running CarouselMathTest (Annex C.1, D.3)...");
+            System.out.println("2. Running DeferredImportQueueTest (photo picker lifecycle and retry queue)...");
+            DeferredImportQueueTest.runTests();
+            passedSuites++;
+        } catch (Throwable t) {
+            System.err.println("  [FAIL] DeferredImportQueueTest: " + t.getMessage());
+            t.printStackTrace();
+        }
+
+        try {
+            System.out.println("4. Running CarouselMathTest (Annex C.1, D.3)...");
             CarouselMathTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
@@ -33,7 +42,7 @@ public class TestMain {
         }
 
         try {
-            System.out.println("3. Running LauncherConfigTest (Annex C, D)...");
+            System.out.println("4. Running LauncherConfigTest (Annex C, D)...");
             LauncherConfigTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
@@ -42,7 +51,7 @@ public class TestMain {
         }
 
         try {
-            System.out.println("4. Running PinnedWheelSlotOrderTest (stable focus slot transitions)...");
+            System.out.println("5. Running PinnedWheelSlotOrderTest (stable focus slot transitions)...");
             PinnedWheelSlotOrderTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
@@ -51,7 +60,7 @@ public class TestMain {
         }
 
         try {
-            System.out.println("5. Running WatchNextEntryPolicyTest (empty intent URI and playback progress)...");
+            System.out.println("6. Running WatchNextEntryPolicyTest (empty intent URI and playback progress)...");
             WatchNextEntryPolicyTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
@@ -60,7 +69,7 @@ public class TestMain {
         }
 
         try {
-            System.out.println("6. Running UpdateVersionPolicyTest (monotonic release tags)...");
+            System.out.println("7. Running UpdateVersionPolicyTest (monotonic release tags)...");
             UpdateVersionPolicyTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
@@ -69,7 +78,7 @@ public class TestMain {
         }
 
         try {
-            System.out.println("7. Running WeatherRefreshPolicyTest (refresh on every launcher return)...");
+            System.out.println("8. Running WeatherRefreshPolicyTest (refresh on every launcher return)...");
             WeatherRefreshPolicyTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
@@ -78,7 +87,7 @@ public class TestMain {
         }
 
         try {
-            System.out.println("8. Running DayGreetingPolicyTest (local-time boundaries)...");
+            System.out.println("9. Running DayGreetingPolicyTest (local-time boundaries)...");
             DayGreetingPolicyTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
@@ -87,7 +96,7 @@ public class TestMain {
         }
 
         try {
-            System.out.println("9. Running WeatherAdvicePolicyTest (day/night, temperature and condition advice)...");
+            System.out.println("10. Running WeatherAdvicePolicyTest (day/night, temperature and condition advice)...");
             WeatherAdvicePolicyTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
