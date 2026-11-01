@@ -5,6 +5,7 @@ import android.animation.AnimatorSet;
 import android.animation.AnimatorListenerAdapter;
 import android.animation.ObjectAnimator;
 import android.app.Activity;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.BitmapRegionDecoder;
@@ -45,12 +46,17 @@ public class CinematicBackgroundManager {
     private static final String TAG = "CinematicBackgroundMgr";
     private static final int MAX_WALLPAPER_DECODE_WIDTH = 2048;
     private static final int MAX_WALLPAPER_DECODE_HEIGHT = 1152;
+    private static final String PREFERENCES_NAME = "cinematic_launcher_prefs";
+    private static final String KEY_BACKGROUND_ROTATION_ENABLED = "background_rotation_enabled";
+    private static final String KEY_PAUSED_WALLPAPER_PATH = "background_paused_wallpaper_path";
 
     private final Activity activity;
     private final ImageView imageViewA;
     private final ImageView imageViewB;
     private final LauncherConfig config;
+    private final SharedPreferences preferences;
     private final RotationQueue queue;
+    private volatile boolean rotationEnabled = true;
     private final Handler mainHandler;
     private final ExecutorService decodeExecutor;
 
@@ -73,12 +79,12 @@ public class CinematicBackgroundManager {
     private final Runnable rotationRunnable = new Runnable() {
         @Override
         public void run() {
-            if (!isVisible || destroyed || queue.isEmpty()) return;
+            if (!rotationEnabled || !isVisible || destroyed || queue.isEmpty()) return;
             rotateToNext();
             // Keep rotation event-driven: do not wake the main looper when no wallpapers exist.
             // With one photo, displaying it once is enough; re-decoding and crossfading
             // the same bitmap every 20 seconds produces no visual change.
-            if (isVisible && !destroyed && queue.size() > 1) {
+            if (rotationEnabled && isVisible && !destroyed && queue.size() > 1) {
                 mainHandler.postDelayed(this, config.getRotationIntervalSec() * 1000L);
             }
         }
@@ -89,6 +95,8 @@ public class CinematicBackgroundManager {
         this.imageViewA = imgA;
         this.imageViewB = imgB;
         this.config = config != null ? config : new LauncherConfig();
+        this.preferences = activity.getSharedPreferences(PREFERENCES_NAME, Activity.MODE_PRIVATE);
+        this.rotationEnabled = preferences.getBoolean(KEY_BACKGROUND_ROTATION_ENABLED, true);
         this.queue = new RotationQueue();
         this.mainHandler = new Handler(Looper.getMainLooper());
         this.decodeExecutor = new ThreadPoolExecutor(
@@ -110,6 +118,56 @@ public class CinematicBackgroundManager {
 
     public RotationQueue getQueue() {
         return queue;
+    }
+
+    public boolean isRotationEnabled() {
+        return rotationEnabled;
+    }
+
+    /**
+     * Pauses automatic wallpaper changes while preserving the currently visible image.
+     * Explicit showWallpaper() calls remain available so the user can choose a fixed image.
+     */
+    public void setRotationEnabled(boolean enabled) {
+        if (destroyed || rotationEnabled == enabled) return;
+        if (!enabled) {
+            rotationEnabled = false;
+            mainHandler.removeCallbacks(rotationRunnable);
+            workGeneration.incrementAndGet();
+            cancelPendingDecode();
+            // If a timed crossfade is in progress, keep the last fully settled frame.
+            cancelCrossfadeAnimation();
+            File selected = currentWallpaperFile;
+            SharedPreferences.Editor editor = preferences.edit()
+                    .putBoolean(KEY_BACKGROUND_ROTATION_ENABLED, false);
+            if (selected != null && selected.isFile()) {
+                editor.putString(KEY_PAUSED_WALLPAPER_PATH, selected.getAbsolutePath());
+            } else if (pendingPreferredBackground != null && pendingPreferredBackground.isFile()) {
+                editor.putString(KEY_PAUSED_WALLPAPER_PATH,
+                        pendingPreferredBackground.getAbsolutePath());
+            } else {
+                editor.remove(KEY_PAUSED_WALLPAPER_PATH);
+            }
+            editor.apply();
+        } else {
+            rotationEnabled = true;
+            preferences.edit()
+                    .putBoolean(KEY_BACKGROUND_ROTATION_ENABLED, true)
+                    .remove(KEY_PAUSED_WALLPAPER_PATH)
+                    .apply();
+            scheduleRotationIfAvailable();
+        }
+    }
+
+    private File getPausedWallpaper() {
+        String path = preferences.getString(KEY_PAUSED_WALLPAPER_PATH, null);
+        if (path == null || path.isEmpty()) return null;
+        File file = new File(path);
+        if (!isSupportedImage(file)) {
+            preferences.edit().remove(KEY_PAUSED_WALLPAPER_PATH).apply();
+            return null;
+        }
+        return file;
     }
 
     public void setOnBackgroundChangedListener(Runnable listener) {
@@ -166,22 +224,36 @@ public class CinematicBackgroundManager {
                 if (currentWallpaperFile != null && currentWallpaperFile.isFile()) {
                     queue.markDisplayed(currentWallpaperFile);
                 }
-                Log.i(TAG, "Loaded " + images.size() + " local background images");
+                File preferred = pendingPreferredBackground;
+                if (preferred == null && !rotationEnabled) preferred = getPausedWallpaper();
+                if (preferred != null && (!preferred.isFile() || !images.contains(preferred))) {
+                    preferred = null;
+                    if (!rotationEnabled) {
+                        preferences.edit().remove(KEY_PAUSED_WALLPAPER_PATH).apply();
+                    }
+                    pendingPreferredBackground = null;
+                }
+                final File preferredToShow = preferred;
+                Log.i(TAG, "Loaded " + images.size() + " local background images"
+                        + " rotationEnabled=" + rotationEnabled);
                 // Do not make the first real wallpaper wait through the normal 20-second
                 // rotation interval. Decode it immediately after discovery, off the UI thread.
                 mainHandler.post(() -> {
                     if (!isVisible || destroyed
                             || loadGeneration != localBackgroundLoadGeneration.get()) return;
-                    File preferred = pendingPreferredBackground;
-                    if (preferred != null && preferred.isFile() && images.contains(preferred)) {
-                        showWallpaper(preferred);
-                    } else {
-                        if (preferred != null && !preferred.isFile()) pendingPreferredBackground = null;
-                        if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
+                    if (preferredToShow != null) {
+                        showWallpaper(preferredToShow);
+                    } else if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
+                        if (rotationEnabled) {
                             rotateToNext();
                         } else {
-                            scheduleRotationIfAvailable();
+                            // With rotation disabled, show one initial/persisted frame but never
+                            // schedule an automatic successor.
+                            File initial = queue.getNextRandomImage();
+                            if (initial != null) showWallpaper(initial);
                         }
+                    } else {
+                        scheduleRotationIfAvailable();
                     }
                 });
             } catch (Exception e) {
@@ -290,6 +362,9 @@ public class CinematicBackgroundManager {
         cancelPendingDecode();
         cancelCrossfadeAnimation();
         pendingPreferredBackground = file;
+        if (!rotationEnabled) {
+            preferences.edit().putString(KEY_PAUSED_WALLPAPER_PATH, file.getAbsolutePath()).apply();
+        }
         long generation = workGeneration.incrementAndGet();
         try {
             pendingDecode = decodeExecutor.submit(() -> {
@@ -334,6 +409,10 @@ public class CinematicBackgroundManager {
             }
             if (!canonicalFile.delete()) return false;
             queue.removeImage(file);
+            String pausedPath = preferences.getString(KEY_PAUSED_WALLPAPER_PATH, null);
+            if (canonicalFile.getAbsolutePath().equals(pausedPath)) {
+                preferences.edit().remove(KEY_PAUSED_WALLPAPER_PATH).apply();
+            }
 
             if (deletingCurrent) {
                 // Drop pending work and release both owned wallpaper bitmaps before restoring
@@ -378,6 +457,14 @@ public class CinematicBackgroundManager {
             }
         } else if (!localBackgroundsLoaded && !isLocalBackgroundLoadPending()) {
             loadLocalBackgrounds();
+        } else if (!rotationEnabled) {
+            File pausedWallpaper = getPausedWallpaper();
+            if (pausedWallpaper != null && !pausedWallpaper.equals(currentWallpaperFile)) {
+                showWallpaper(pausedWallpaper);
+            } else if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
+                File initial = queue.getNextRandomImage();
+                if (initial != null) showWallpaper(initial);
+            }
         } else if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
             rotateToNext();
         } else {
@@ -412,7 +499,7 @@ public class CinematicBackgroundManager {
     }
 
     private void rotateToNext() {
-        if (!isVisible || destroyed) return;
+        if (!rotationEnabled || !isVisible || destroyed) return;
         if (pendingDecode != null && !pendingDecode.isDone()) return;
         if (queue.isEmpty()) {
             // Retain default or last valid background; no black frame per Annex C.2

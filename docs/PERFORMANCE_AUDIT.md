@@ -281,3 +281,36 @@ No UI component, navigation behavior, Watch Next feature, wallpaper crossfade, o
 - La suite pura de Java añade pruebas para transparencia PNG y selección segura de configuración. El resultado de GitHub Actions de este seguimiento debe consultarse antes de marcar CI como PASS.
 - La mejora real de CPU/RAM, el aspecto del encabezado a distancia de TV y la estabilidad del indicador requieren instalar el APK resultante y repetir la captura en el Hisense. No se consideran validados por el cambio fuente ni por la compilación.
 - No se modifican la frecuencia de rotación de 20 segundos, la calidad/resolución objetivo de los fondos, el diseño de tarjetas, ni las funciones de la Biblioteca/Recientes.
+
+
+## Seguimiento — CPU de Continuar viendo y pausa persistente de fondos (2026-11-01)
+
+### Síntoma reportado por el usuario
+
+- Durante desplazamiento continuo de la ruleta «Continuar viendo», la CPU del proceso llegó a 110–130% o más; una secuencia comparable se había mantenido anteriormente cerca de 34%.
+- El cambio automático de fondos continúa produciendo picos de CPU.
+- El punto guía al alternar Biblioteca/Recientes se reporta ya corregido y no se modifica en este seguimiento.
+
+### Revisión del código y límites de atribución
+
+- El PR #29 no modificó `ContinueWatchingWheelView.java`; por tanto, el reporte posterior no demuestra por sí solo que ese PR haya introducido la regresión. Se revisó la ruta activa de navegación, carga de pósteres y consulta del proveedor.
+- La ruleta tenía tres decodificadores de póster en paralelo, prioridad normal, decodificación máxima de 640×360 y muestreo de paleta que recorría hasta 90×54 puntos y volvía a leer filas para las ocho zonas.
+- El proveedor podía volver a consultarse como mínimo cada 1,2 segundos ante notificaciones sucesivas.
+- No se dispone de una captura sincronizada de CPU por hilo, animación y carga de pósteres durante la secuencia de 110–130%; las condiciones anteriores son fuentes de trabajo concurrente que se pueden reducir, no una atribución probada de todo el pico.
+
+### Cambios de esta revisión
+
+- Limitar la carga de pósteres a un único worker con prioridad de fondo, para evitar decodificaciones simultáneas en varios núcleos del televisor.
+- Reducir la decodificación máxima de póster a 320×180 (suficiente para la tarjeta de 88×50 dp, con margen para densidades de pantalla superiores a 1x).
+- Sustituir las múltiples pasadas de muestreo de paleta por una única cuadrícula de 24×18 puntos.
+- Coalescer las lecturas del proveedor con un intervalo mínimo de 5 segundos. La selección, los títulos, los pósteres, la animación de 220 ms y la barra de progreso se conservan.
+- Añadir métricas de tiempo transcurrido y CPU de hilo para las consultas del proveedor, decodificación de póster y muestreo de paleta en compilaciones Debug.
+- Añadir una casilla «Detener rotación de fondos» en el panel Cuadro de fotos. Marcada: cancela temporizador y decodificación automática pendiente, conserva la imagen visible y recuerda su ruta. Las selecciones manuales siguen disponibles y se recuerdan incluso tras reiniciar el proceso. Desmarcada: elimina el anclaje fijo y reanuda la rotación normal de 20 segundos.
+- El control de pausa no cambia la resolución de los fondos, el crossfade de 160 ms ni la composición del launcher.
+
+### Validación pendiente
+
+- La prueba unitaria nueva verifica el tamaño de muestra esperado para pósteres 1080p, 720p, 360p, tamaño objetivo y dimensiones inválidas, además del nuevo intervalo mínimo de consulta.
+- La compilación Debug/Release y el resto de tests deben pasar en GitHub Actions antes de probar.
+- El comportamiento real de la ruleta y los picos de CPU deben medirse en el Hisense con la misma secuencia de navegación. Para correlacionar un pico, comparar `Poster decode`, `Poster palette sample`, `Provider refresh` y `Wallpaper decode` (tiempo CPU de hilo) con `top`/HUD.
+- La CPU máxima durante un cambio de fondo no se da por corregida todavía. La casilla permite desactivar esos cambios automáticos y detener el trabajo de rotación cuando se prefiere un fondo fijo.

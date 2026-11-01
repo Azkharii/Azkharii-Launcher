@@ -18,6 +18,7 @@ javac -d "$BUILD_DIR" \
     launcher/app/src/main/java/com/cinematic/tvlauncher/background/WallpaperCropPolicy.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/controls/DeferredImportQueue.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/carousel/CarouselLayoutCalculator.java \
+    launcher/app/src/main/java/com/cinematic/tvlauncher/carousel/ContinueWatchingPerformancePolicy.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/navigation/PinnedWheelSlotOrder.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/WatchNextEntryPolicy.java \
     launcher/app/src/main/java/com/cinematic/tvlauncher/UpdateVersionPolicy.java \
@@ -35,6 +36,7 @@ javac -d "$BUILD_DIR" \
     launcher/app/src/test/java/com/cinematic/tvlauncher/R.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/RotationQueueTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/WallpaperCropPolicyTest.java \
+    launcher/app/src/test/java/com/cinematic/tvlauncher/ContinueWatchingPerformancePolicyTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/DeferredImportQueueTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/CarouselMathTest.java \
     launcher/app/src/test/java/com/cinematic/tvlauncher/LauncherConfigTest.java \

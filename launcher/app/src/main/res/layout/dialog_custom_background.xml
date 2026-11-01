@@ -31,6 +31,20 @@
         android:textSize="13sp"
         android:lineSpacingExtra="1dp" />
 
+    <CheckBox
+        android:id="@+id/chk_stop_background_rotation"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="7dp"
+        android:buttonTint="#FFB8E8FF"
+        android:focusable="true"
+        android:clickable="true"
+        android:nextFocusDown="@id/btn_choose_backgrounds"
+        android:text="Detener rotación de fondos"
+        android:textColor="@color/text_primary"
+        android:textSize="13sp" />
+
     <TextView
         android:id="@+id/btn_choose_backgrounds"
         android:layout_width="match_parent"
@@ -39,6 +53,7 @@
         android:background="@drawable/liquid_glass_action_bg"
         android:focusable="true"
         android:clickable="true"
+        android:nextFocusUp="@id/chk_stop_background_rotation"
         android:nextFocusDown="@id/btn_manage_backgrounds"
         android:text="@string/custom_background_choose"
         android:textColor="@color/text_primary"

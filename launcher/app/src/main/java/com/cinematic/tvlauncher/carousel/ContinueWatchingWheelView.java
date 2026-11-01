@@ -3,7 +3,9 @@ package com.cinematic.tvlauncher.carousel;
 import android.content.Context;
 import android.net.Uri;
 import android.os.CancellationSignal;
+import android.os.Debug;
 import android.os.Handler;
+import android.os.Process;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
@@ -35,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import com.cinematic.tvlauncher.WatchNextEntryPolicy;
 import com.cinematic.tvlauncher.WatchNextRepository;
+import com.cinematic.tvlauncher.BuildConfig;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -69,12 +72,26 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     private static final int MAX_VISIBLE_ITEMS = 5;
     private static final String TAG = "ContinueWatching";
     private static final ExecutorService DATA_EXECUTOR =
-            new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+            new ThreadPoolExecutor(0, 1, 15L, TimeUnit.SECONDS,
+                    new LinkedBlockingQueue<>(), backgroundWorkerFactory("CinematicWatchNextQuery"));
     private static final ThreadPoolExecutor ARTWORK_EXECUTOR = new ThreadPoolExecutor(
-            3, 3, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>());
+            1, 1, 15L, TimeUnit.SECONDS, new LinkedBlockingQueue<>(),
+            backgroundWorkerFactory("CinematicWatchNextArtwork"));
     static {
-        // Preserve the three-way artwork parallelism, but let idle workers release their stacks.
+        // One background-priority decoder avoids simultaneous image decodes and palette scans
+        // saturating several TV cores during rapid navigation.
         ARTWORK_EXECUTOR.allowCoreThreadTimeOut(true);
+    }
+
+    private static java.util.concurrent.ThreadFactory backgroundWorkerFactory(String name) {
+        return task -> new Thread(() -> {
+            try {
+                Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+            } catch (RuntimeException ignored) {
+                // Keep provider/artwork loading available on firmware rejecting priority changes.
+            }
+            task.run();
+        }, name);
     }
     private static final int MAX_ARTWORK_SOURCE_BYTES = 6 * 1024 * 1024;
     // Bound poster bitmap retention; 8 MiB still covers the visible wheel without holding a large artwork history.
@@ -93,7 +110,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
     };
     private final Handler refreshHandler = new Handler(Looper.getMainLooper());
     private final Runnable scheduledRefresh = this::runScheduledRefresh;
-    private static final long MIN_PROVIDER_REFRESH_INTERVAL_MS = 1200L;
+    private static final long MIN_PROVIDER_REFRESH_INTERVAL_MS =
+            ContinueWatchingPerformancePolicy.PROVIDER_REFRESH_INTERVAL_MS;
     private long lastRefreshStartedAtMs;
     private boolean refreshScheduled;
     private WatchNextRepository watchNextRepository;
@@ -281,8 +299,16 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             try {
             if (hostPaused || Thread.currentThread().isInterrupted()
                     || cancellationSignal.isCanceled()) return;
+            long queryStartedAt = SystemClock.elapsedRealtime();
+            long queryCpuStartedAt = Debug.threadCpuTimeNanos();
             List<WatchNextRepository.Entry> entries =
                     watchNextRepository.queryContinueWatching(cancellationSignal);
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "Provider refresh rows=" + entries.size()
+                        + " elapsed=" + (SystemClock.elapsedRealtime() - queryStartedAt) + "ms"
+                        + " cpu=" + Math.max(0L,
+                                (Debug.threadCpuTimeNanos() - queryCpuStartedAt) / 1_000_000L) + "ms");
+            }
             List<MediaItem> result = new ArrayList<>(entries.size());
             for (WatchNextRepository.Entry entry : entries) result.add(new MediaItem(entry));
 
@@ -389,7 +415,15 @@ public final class ContinueWatchingWheelView extends FrameLayout {
             int[] palette = ARTWORK_PALETTE_CACHE.get(cacheKey);
             if (decoded == null) {
                 try {
+                    long decodeStartedAt = SystemClock.elapsedRealtime();
+                    long decodeCpuStartedAt = Debug.threadCpuTimeNanos();
                     decoded = decodePosterArtwork(item.posterArtUri);
+                    if (BuildConfig.DEBUG && decoded != null) {
+                        Log.d(TAG, "Poster decode " + decoded.getWidth() + "x" + decoded.getHeight()
+                                + " elapsed=" + (SystemClock.elapsedRealtime() - decodeStartedAt) + "ms"
+                                + " cpu=" + Math.max(0L,
+                                        (Debug.threadCpuTimeNanos() - decodeCpuStartedAt) / 1_000_000L) + "ms");
+                    }
                     if (decoded != null) ARTWORK_CACHE.put(cacheKey, decoded);
                     else {
                         Log.d(TAG, "Poster decode returned no bitmap for package="
@@ -406,7 +440,15 @@ public final class ContinueWatchingWheelView extends FrameLayout {
 
             if (decoded != null) {
                 if (palette == null) {
+                    long paletteStartedAt = SystemClock.elapsedRealtime();
+                    long paletteCpuStartedAt = Debug.threadCpuTimeNanos();
                     palette = sampleArtworkPalette(decoded);
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "Poster palette sample elapsed="
+                                + (SystemClock.elapsedRealtime() - paletteStartedAt) + "ms"
+                                + " cpu=" + Math.max(0L,
+                                        (Debug.threadCpuTimeNanos() - paletteCpuStartedAt) / 1_000_000L) + "ms");
+                    }
                     if (Thread.currentThread().isInterrupted() || hostPaused
                             || generation != artworkGeneration.get()) return;
                     ARTWORK_PALETTE_CACHE.put(cacheKey, palette);
@@ -524,8 +566,8 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         BitmapFactory.decodeByteArray(sourceBytes, 0, sourceBytes.length, bounds);
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null;
 
-        int sample = 1;
-        while (bounds.outWidth / sample > 640 || bounds.outHeight / sample > 360) sample *= 2;
+        int sample = ContinueWatchingPerformancePolicy.calculateArtworkSampleSize(
+                bounds.outWidth, bounds.outHeight);
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = sample;
         return BitmapFactory.decodeByteArray(sourceBytes, 0, sourceBytes.length, options);
@@ -771,7 +813,10 @@ public final class ContinueWatchingWheelView extends FrameLayout {
         return background;
     }
 
-    /** Samples eight zones around the real poster to map local tones to each side of the frame. */
+    /**
+     * Samples a 24x18 logical grid once. The old path scanned up to 90x54 pixels for
+     * the average and then reread rows for each of eight edge zones.
+     */
     private int[] sampleArtworkPalette(Bitmap bitmap) {
         if (bitmap == null || bitmap.getWidth() == 0 || bitmap.getHeight() == 0) {
             return DEFAULT_PALETTE.clone();
@@ -779,58 +824,72 @@ public final class ContinueWatchingWheelView extends FrameLayout {
 
         final int width = bitmap.getWidth();
         final int height = bitmap.getHeight();
-        final int stepX = Math.max(1, width / 90);
-        final int stepY = Math.max(1, height / 54);
-        int fallback = DEFAULT_ACCENT;
+        final int sampleWidth = Math.min(24, width);
+        final int sampleHeight = Math.min(18, height);
         int[] rowPixels = new int[width];
         long allRed = 0, allGreen = 0, allBlue = 0, allCount = 0;
-        for (int y = 0; y < height; y += stepY) {
-            bitmap.getPixels(rowPixels, 0, width, 0, y, width, 1);
-            for (int x = 0; x < width; x += stepX) {
-                int pixel = rowPixels[x];
+        long[] zoneRed = new long[8];
+        long[] zoneGreen = new long[8];
+        long[] zoneBlue = new long[8];
+        int[] zoneCounts = new int[8];
+
+        for (int sy = 0; sy < sampleHeight; sy++) {
+            int sourceY = Math.min(height - 1,
+                    ((sy * 2 + 1) * height) / (sampleHeight * 2));
+            bitmap.getPixels(rowPixels, 0, width, 0, sourceY, width, 1);
+            for (int sx = 0; sx < sampleWidth; sx++) {
+                int sourceX = Math.min(width - 1,
+                        ((sx * 2 + 1) * width) / (sampleWidth * 2));
+                int pixel = rowPixels[sourceX];
                 if (Color.alpha(pixel) < 128) continue;
-                int r = Color.red(pixel), g = Color.green(pixel), b = Color.blue(pixel);
-                if (Math.max(r, Math.max(g, b)) < 20) continue;
-                allRed += r; allGreen += g; allBlue += b; allCount++;
-            }
-        }
-        if (allCount > 0) {
-            fallback = Color.rgb((int)(allRed / allCount), (int)(allGreen / allCount),
-                    (int)(allBlue / allCount));
-        }
+                int red = Color.red(pixel);
+                int green = Color.green(pixel);
+                int blue = Color.blue(pixel);
+                if (Math.max(red, Math.max(green, blue)) < 20) continue;
 
-        // Regions follow the drawable's perimeter order: TL, top, TR, right,
-        // BR, bottom, BL, left. They are deliberately broad enough for small posters.
-        int[][] zones = {
-                {0, 0, width / 3, height / 4},
-                {width / 3, 0, (width * 2) / 3, height / 4},
-                {(width * 2) / 3, 0, width, height / 4},
-                {(width * 3) / 4, height / 4, width, (height * 3) / 4},
-                {(width * 2) / 3, (height * 3) / 4, width, height},
-                {width / 3, (height * 3) / 4, (width * 2) / 3, height},
-                {0, (height * 3) / 4, width / 3, height},
-                {0, height / 4, width / 4, (height * 3) / 4}
-        };
+                allRed += red;
+                allGreen += green;
+                allBlue += blue;
+                allCount++;
 
-        int[] palette = new int[zones.length];
-        for (int i = 0; i < zones.length; i++) {
-            int[] zone = zones[i];
-            long red = 0, green = 0, blue = 0, count = 0;
-            for (int y = zone[1]; y < zone[3]; y += stepY) {
-                bitmap.getPixels(rowPixels, 0, width, 0, y, width, 1);
-                for (int x = zone[0]; x < zone[2]; x += stepX) {
-                    int pixel = rowPixels[x];
-                    if (Color.alpha(pixel) < 128) continue;
-                    int r = Color.red(pixel), g = Color.green(pixel), b = Color.blue(pixel);
-                    if (Math.max(r, Math.max(g, b)) < 20) continue;
-                    red += r; green += g; blue += b; count++;
+                int zone = paletteZone(sx, sy, sampleWidth, sampleHeight);
+                if (zone >= 0) {
+                    zoneRed[zone] += red;
+                    zoneGreen[zone] += green;
+                    zoneBlue[zone] += blue;
+                    zoneCounts[zone]++;
                 }
             }
-            int raw = count == 0 ? fallback
-                    : Color.rgb((int)(red / count), (int)(green / count), (int)(blue / count));
+        }
+
+        int fallback = allCount == 0 ? DEFAULT_ACCENT
+                : Color.rgb((int) (allRed / allCount), (int) (allGreen / allCount),
+                        (int) (allBlue / allCount));
+        int[] palette = new int[8];
+        for (int i = 0; i < palette.length; i++) {
+            int raw = zoneCounts[i] == 0 ? fallback
+                    : Color.rgb((int) (zoneRed[i] / zoneCounts[i]),
+                            (int) (zoneGreen[i] / zoneCounts[i]),
+                            (int) (zoneBlue[i] / zoneCounts[i]));
             palette[i] = liftEdgeColor(raw);
         }
         return palette;
+    }
+
+    /** Perimeter order: TL, top, TR, right, BR, bottom, BL, left. */
+    private int paletteZone(int x, int y, int width, int height) {
+        int topEnd = Math.max(1, height / 4);
+        int bottomStart = Math.min(height - 1, (height * 3) / 4);
+        int leftEnd = Math.max(1, width / 4);
+        int rightStart = Math.min(width - 1, (width * 3) / 4);
+        int leftThird = Math.max(1, width / 3);
+        int rightThird = Math.max(leftThird + 1, (width * 2) / 3);
+
+        if (y < topEnd) return x < leftThird ? 0 : (x < rightThird ? 1 : 2);
+        if (y >= bottomStart) return x < leftThird ? 6 : (x < rightThird ? 5 : 4);
+        if (x >= rightStart) return 3;
+        if (x < leftEnd) return 7;
+        return -1;
     }
 
     private int liftEdgeColor(int color) {

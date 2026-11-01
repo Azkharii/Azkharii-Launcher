@@ -286,6 +286,20 @@ public class TvControlManager {
         TextView chooseButton = panel.findViewById(R.id.btn_choose_backgrounds);
         TextView manageButton = panel.findViewById(R.id.btn_manage_backgrounds);
         TextView cancelButton = panel.findViewById(R.id.btn_cancel_backgrounds);
+        android.widget.CheckBox stopRotation = panel.findViewById(R.id.chk_stop_background_rotation);
+        if (stopRotation != null && backgroundManager != null) {
+            // Checked means automatic rotation is paused; the chosen frame remains in place.
+            stopRotation.setChecked(!backgroundManager.isRotationEnabled());
+            stopRotation.setOnCheckedChangeListener((button, checked) -> {
+                backgroundManager.setRotationEnabled(!checked);
+                Toast.makeText(activity, checked
+                        ? "Rotación detenida. El fondo actual se conservará."
+                        : "Rotación reanudada; el siguiente cambio será automático.",
+                        Toast.LENGTH_SHORT).show();
+            });
+        } else if (stopRotation != null) {
+            stopRotation.setEnabled(false);
+        }
         chooseButton.setOnClickListener(v -> {
             dialog.dismiss();
             openBackgroundPicker();
