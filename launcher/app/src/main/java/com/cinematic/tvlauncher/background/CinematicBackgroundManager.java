@@ -239,6 +239,9 @@ public class CinematicBackgroundManager {
         crossfadeAnimator = null;
         ImageView front = isFrontA ? imageViewA : imageViewB;
         ImageView back = isFrontA ? imageViewB : imageViewA;
+        // applyCrossfade() stages the incoming file before its fade finishes; on cancellation,
+        // the outgoing/front layer remains the one actually visible to the user.
+        currentWallpaperFile = isFrontA ? wallpaperFileA : wallpaperFileB;
         running.cancel();
         front.setAlpha(1f);
         front.setScaleX(1f);
