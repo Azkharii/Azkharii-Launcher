@@ -1,19 +1,15 @@
 package com.cinematic.tvlauncher;
 
-/** Boundary tests for the weather cache's 50-minute refresh policy. */
+/** Every return to the foreground refreshes; persisted cache age never blocks it. */
 public final class WeatherRefreshPolicyTest {
     private WeatherRefreshPolicyTest() {}
 
     public static void runTests() {
-        long now = 1_800_000_000_000L;
-        assert WeatherRefreshPolicy.isRefreshDue(0L, now) : "first use must refresh";
-        assert !WeatherRefreshPolicy.isRefreshDue(
-                now - WeatherRefreshPolicy.REFRESH_INTERVAL_MS + 1L, now)
-                : "refresh must wait until 50 minutes have elapsed";
-        assert WeatherRefreshPolicy.isRefreshDue(
-                now - WeatherRefreshPolicy.REFRESH_INTERVAL_MS, now)
-                : "refresh should be due at exactly 50 minutes";
-        assert WeatherRefreshPolicy.isRefreshDue(now + 1_000L, now)
-                : "clock moving backwards must not block refresh indefinitely";
+        assert WeatherRefreshPolicy.shouldRefreshOnLauncherResume()
+                : "launcher resume must always request fresh weather";
+        assert WeatherRefreshPolicy.shouldRefreshOnLauncherResume()
+                : "a recent previous attempt must not suppress a second launcher resume";
+        assert WeatherRefreshPolicy.shouldRefreshOnLauncherResume()
+                : "screen-off/screen-on must not inherit a persisted refresh countdown";
     }
 }
