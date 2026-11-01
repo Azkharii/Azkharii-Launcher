@@ -7,7 +7,7 @@ import java.util.Random;
 
 /**
  * RotationQueue — Manages photo rotation sequence.
- * Implements Annex C.2 requirement: randomized sequence every ~10s avoiding
+ * Implements Annex C.2 requirement: randomized sequence every ~20s avoiding
  * displaying the same photograph consecutively when multiple images are available.
  */
 public class RotationQueue {
