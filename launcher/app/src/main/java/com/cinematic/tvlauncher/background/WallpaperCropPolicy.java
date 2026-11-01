@@ -8,6 +8,24 @@ public final class WallpaperCropPolicy {
 
     private WallpaperCropPolicy() {}
 
+
+    /**
+     * Chooses a power-of-two sample for region decoding. A small 12.5% overshoot is accepted
+     * so common 4K-to-2K cases can use half-resolution decode instead of retaining 4K pixels.
+     */
+    public static int calculateRegionSampleSize(int cropWidth, int cropHeight,
+                                                int targetWidth, int targetHeight) {
+        double widthRatio = Math.max(1, cropWidth) / (double) Math.max(1, targetWidth);
+        double heightRatio = Math.max(1, cropHeight) / (double) Math.max(1, targetHeight);
+        double ratio = Math.min(widthRatio, heightRatio);
+        int sampleSize = 1;
+        while (ratio >= sampleSize * 1.75d) {
+            if (sampleSize > (1 << 28)) break;
+            sampleSize *= 2;
+        }
+        return sampleSize;
+    }
+
     /** Returns [left, top, right, bottom] in source-image pixels. */
     public static int[] centerCropRect(int sourceWidth, int sourceHeight,
                                        int targetWidth, int targetHeight) {
