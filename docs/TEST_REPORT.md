@@ -408,3 +408,13 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - **Apply behavior:** after local discovery updates the rotation queue, the first successfully imported selection is explicitly applied through the existing wallpaper crossfade. All imported images remain in the managed folder and «Mis fondos».
 - **Scope:** only TvControlManager, CinematicBackgroundManager, the new deferred-import queue/test, the test runner, and this report are changed. No launcher layout, carousel, focus, weather, pinned-app, Continue Watching, or animation implementation was changed.
 - **Validation:** regression test added for paused-result retention, ordered resume snapshot, deduplication, and completion-only removal. Hosted CI and physical Hisense TV picker/import/apply verification: pending; no APK or on-device success is claimed.
+
+## Wallpaper rotation CPU and app-library heading refinement — 2026-10-31
+
+- Root cause found in the rotation path: `decodeCachedWallpaperPreview()` read a disk derivative if present, but no production path ever wrote that derivative. Consequently, rotations kept decoding the original full-size image.
+- Added worker-thread preview generation after the first source decode. The viewport-sized WebP is written through a temporary file and atomically renamed; later rotations use the derivative. The cache is bounded to 48 MiB and versioned so stale/incompatible entries are ignored.
+- Capped background decode dimensions at 2560×1440 on higher-resolution displays to avoid decoding 4K-sized wallpaper bitmaps when the background layer does not require that many pixels.
+- Hardened crossfade cancellation: the outgoing image is restored when the Activity pauses or a selection supersedes an animation, and stale animation-end callbacks can no longer commit an obsolete layer swap.
+- Wallpaper rotation interval is now 20 seconds. The existing Activity lifecycle pause/resume remains the only visibility gate. Entering the in-Activity app library does not pause rotation; leaving the Activity for another app does.
+- Added an outlined Liquid Glass treatment only to the “Biblioteca de aplicaciones” heading. Its typeface, size, positioning and layout dimensions are retained; app-card labels and other UI text are unchanged.
+- Automated validation for this commit: PENDING hosted tests, Debug/Release build and signed APK verification. Physical Hisense TV measurements (CPU, memory, frame pacing) and visual inspection remain PENDING. No measured CPU reduction or on-device success is claimed.
