@@ -175,21 +175,6 @@ public class CinematicBackgroundManager {
     }
 
     private void addImagesFromDirectory(File directory, List<File> images) {
-                        rotateToNext();
-                    } else {
-                        scheduleRotationIfAvailable();
-                    }
-                });
-            } catch (Exception e) {
-                Log.w(TAG, "Error discovering local background photos", e);
-            }
-            });
-        } catch (java.util.concurrent.RejectedExecutionException ignored) {
-            // Activity is already being destroyed.
-        }
-    }
-
-    private void addImagesFromDirectory(File directory, List<File> images) {
         if (directory == null || !directory.isDirectory()) return;
         File[] files = directory.listFiles();
         if (files == null) return;
