@@ -389,3 +389,13 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - Changed the equality boundary to actual card identity/order; metadata-only updates now update the existing progress strip in place. Provider refreshes are limited to one query start per 1.2 seconds, and the Activity's section/viewport callback runs only when the visible card structure changes.
 - Weather audit found WMO codes 1–3 were all labeled “Cielo nublado”. They are now distinguished as mainly clear, partly cloudy, and overcast; unit tests cover codes 0, 1, 2, and 3.
 - Validation for this branch: pending hosted CI. Physical CPU/RAM and visual verification on the Hisense TV: pending; no runtime improvement is claimed yet.
+
+
+## Weather-only lifecycle and day/night correction — 2026-10-31
+
+- Removed the persisted 50-minute attempt gate. Weather now requests a fresh reading on each launcher foreground return; the prior value is retained only as an immediate display fallback while location/network work completes.
+- WeatherWidgetManager registers screen on/off events only while the launcher Activity is resumed. Screen-off and Activity pause cancel the advice timer, one-shot location listener/timeout, queued weather task, active HTTP connection, and invalidate stale worker callbacks. Screen-on refreshes when the Activity remains resumed; a regular onResume also refreshes after the Activity was paused.
+- The current Open-Meteo request now asks for `is_day` in addition to temperature, apparent temperature, and WMO weather code. Clear/partly cloudy/overcast advice, cold-weather phrases, and unknown-condition fallback now avoid daytime wording at night. A local-clock day/night fallback corrects cached text immediately while a new API response is pending.
+- Added regression assertions for every-foreground refresh policy, clear night wording, night partly-cloudy wording, cold night wording, and unknown nighttime conditions.
+- Scope is weather-only. MainActivity lifecycle wiring, recent-app carousel/glow, pinned apps, Continue Watching, layouts, and animations were not changed.
+- Hosted integrity/unit/build validation and physical TV screen-off/on verification: pending this change.

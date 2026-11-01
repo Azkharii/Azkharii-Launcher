@@ -69,7 +69,7 @@ public class TestMain {
         }
 
         try {
-            System.out.println("7. Running WeatherRefreshPolicyTest (50-minute cache boundary)...");
+            System.out.println("7. Running WeatherRefreshPolicyTest (refresh on every launcher return)...");
             WeatherRefreshPolicyTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
@@ -87,7 +87,7 @@ public class TestMain {
         }
 
         try {
-            System.out.println("9. Running WeatherAdvicePolicyTest (temperature and condition advice)...");
+            System.out.println("9. Running WeatherAdvicePolicyTest (day/night, temperature and condition advice)...");
             WeatherAdvicePolicyTest.runTests();
             passedSuites++;
         } catch (Throwable t) {
