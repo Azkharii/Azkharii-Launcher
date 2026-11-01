@@ -8,6 +8,7 @@ import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.ImageDecoder;
+import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
@@ -514,6 +515,28 @@ public class CinematicBackgroundManager {
      * Decode close to the TV viewport. Reuse a validated on-disk derivative after first display;
      * otherwise resize during decode on API 28+, with a sampled BitmapFactory fallback on API 26–27.
      */
+    /** Center-crop the source rectangle to the TV viewport aspect ratio without upscaling. */
+    private static Rect centerCropRect(int sourceWidth, int sourceHeight,
+                                       int targetWidth, int targetHeight) {
+        int left = 0;
+        int top = 0;
+        int right = Math.max(1, sourceWidth);
+        int bottom = Math.max(1, sourceHeight);
+        double targetAspect = Math.max(1, targetWidth) / (double) Math.max(1, targetHeight);
+        double sourceAspect = right / (double) bottom;
+
+        if (sourceAspect > targetAspect) {
+            int cropWidth = Math.max(1, (int) Math.round(bottom * targetAspect));
+            left = Math.max(0, (right - cropWidth) / 2);
+            right = Math.min(sourceWidth, left + cropWidth);
+        } else if (sourceAspect < targetAspect) {
+            int cropHeight = Math.max(1, (int) Math.round(right / targetAspect));
+            top = Math.max(0, (bottom - cropHeight) / 2);
+            bottom = Math.min(sourceHeight, top + cropHeight);
+        }
+        return new Rect(left, top, right, bottom);
+    }
+
     /**
      * Decode only the pixels required by the TV viewport. Do not re-encode the result here:
      * compression during rotation was adding a second CPU-heavy pass to every cache miss.
@@ -535,11 +558,17 @@ public class CinematicBackgroundManager {
                     }
                     int sourceWidth = Math.max(1, info.getSize().getWidth());
                     int sourceHeight = Math.max(1, info.getSize().getHeight());
-                    double scale = Math.min(1d, Math.max(
-                            reqWidth / (double) sourceWidth,
-                            reqHeight / (double) sourceHeight));
-                    int targetWidth = Math.max(1, (int) Math.ceil(sourceWidth * scale));
-                    int targetHeight = Math.max(1, (int) Math.ceil(sourceHeight * scale));
+                    Rect crop = centerCropRect(sourceWidth, sourceHeight, reqWidth, reqHeight);
+                    int cropWidth = Math.max(1, crop.width());
+                    int cropHeight = Math.max(1, crop.height());
+                    // Crop to the same 16:9-style viewport that ImageView.CENTER_CROP displays.
+                    // This avoids decoding excess top/bottom pixels from portrait/4:3 photos.
+                    double scale = Math.min(1d, Math.min(
+                            reqWidth / (double) cropWidth,
+                            reqHeight / (double) cropHeight));
+                    int targetWidth = Math.max(1, (int) Math.round(cropWidth * scale));
+                    int targetHeight = Math.max(1, (int) Math.round(cropHeight * scale));
+                    decoder.setCrop(crop);
                     decoder.setTargetSize(targetWidth, targetHeight);
                     decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
                     decoder.setMemorySizePolicy(ImageDecoder.MEMORY_POLICY_LOW_RAM);
