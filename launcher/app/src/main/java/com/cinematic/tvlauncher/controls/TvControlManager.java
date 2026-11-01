@@ -41,7 +41,6 @@ import android.widget.Toast;
 
 import com.cinematic.tvlauncher.R;
 import com.cinematic.tvlauncher.background.CinematicBackgroundManager;
-import com.cinematic.tvlauncher.controls.DeferredImportQueue;
 
 import java.util.ArrayList;
 import java.util.List;
