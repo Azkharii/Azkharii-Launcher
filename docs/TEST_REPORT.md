@@ -399,3 +399,12 @@ The Photos, saved-backgrounds and input-source dialogs now use smaller dimension
 - Added regression assertions for every-foreground refresh policy, clear night wording, night partly-cloudy wording, cold night wording, and unknown nighttime conditions.
 - Scope is weather-only. MainActivity lifecycle wiring, recent-app carousel/glow, pinned apps, Continue Watching, layouts, and animations were not changed.
 - Hosted integrity/unit/build validation and physical TV screen-off/on verification: pending this change.
+
+
+## Wallpaper picker import and immediate apply — 2026-10-31
+
+- **Root cause:** the document picker can return its Activity result before the launcher's next onResume(). TvControlManager was still marked paused, so its import worker exited immediately; the selected URIs were then discarded and never appeared in «Mis fondos».
+- **Import lifecycle:** selected document URIs are now retained in an ordered, deduplicated pending queue. Import starts only while the launcher is foreground, and pending selections are not consumed until the completion callback confirms the batch. A pause/cancellation leaves the selections available for the next resume. URI-derived stable filenames make retries overwrite the same imported copy instead of creating duplicates.
+- **Apply behavior:** after local discovery updates the rotation queue, the first successfully imported selection is explicitly applied through the existing wallpaper crossfade. All imported images remain in the managed folder and «Mis fondos».
+- **Scope:** only TvControlManager, CinematicBackgroundManager, the new deferred-import queue/test, the test runner, and this report are changed. No launcher layout, carousel, focus, weather, pinned-app, Continue Watching, or animation implementation was changed.
+- **Validation:** regression test added for paused-result retention, ordered resume snapshot, deduplication, and completion-only removal. Hosted CI and physical Hisense TV picker/import/apply verification: pending; no APK or on-device success is claimed.

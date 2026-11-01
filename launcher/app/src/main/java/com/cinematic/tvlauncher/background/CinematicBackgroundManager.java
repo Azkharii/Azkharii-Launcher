@@ -52,10 +52,12 @@ public class CinematicBackgroundManager {
 
     private volatile boolean isVisible = false;
     private volatile boolean destroyed = false;
+    private File pendingPreferredBackground;
     private boolean isFrontA = true;
     private AnimatorSet crossfadeAnimator;
     private Future<?> pendingDecode;
     private final AtomicLong workGeneration = new AtomicLong();
+    private final AtomicLong localBackgroundLoadGeneration = new AtomicLong();
     private boolean hasRealWallpaperLoaded = false;
     private volatile File currentWallpaperFile;
     private File wallpaperFileA;
@@ -115,7 +117,14 @@ public class CinematicBackgroundManager {
     }
 
     public void loadLocalBackgrounds() {
+        loadLocalBackgrounds(null);
+    }
+
+    /** Reloads managed images and optionally applies the first newly imported selection. */
+    public void loadLocalBackgrounds(File preferredBackground) {
         if (destroyed) return;
+        if (preferredBackground != null) pendingPreferredBackground = preferredBackground;
+        final long loadGeneration = localBackgroundLoadGeneration.incrementAndGet();
         try {
             decodeExecutor.execute(() -> {
             try {
@@ -132,7 +141,8 @@ public class CinematicBackgroundManager {
                     addImagesFromDirectory(publicPictures, images);
                 }
 
-                if (destroyed || Thread.currentThread().isInterrupted()) return;
+                if (destroyed || Thread.currentThread().isInterrupted()
+                        || loadGeneration != localBackgroundLoadGeneration.get()) return;
                 queue.setImages(images);
                 if (currentWallpaperFile != null && currentWallpaperFile.isFile()) {
                     queue.markDisplayed(currentWallpaperFile);
@@ -141,10 +151,18 @@ public class CinematicBackgroundManager {
                 // Do not make the first real wallpaper wait through the normal 10-second
                 // rotation interval. Decode it immediately after discovery, off the UI thread.
                 mainHandler.post(() -> {
-                    if (isVisible && !destroyed && !hasRealWallpaperLoaded && !queue.isEmpty()) {
-                        rotateToNext();
+                    if (!isVisible || destroyed
+                            || loadGeneration != localBackgroundLoadGeneration.get()) return;
+                    File preferred = pendingPreferredBackground;
+                    if (preferred != null && preferred.isFile() && images.contains(preferred)) {
+                        showWallpaper(preferred);
                     } else {
-                        scheduleRotationIfAvailable();
+                        if (preferred != null && !preferred.isFile()) pendingPreferredBackground = null;
+                        if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
+                            rotateToNext();
+                        } else {
+                            scheduleRotationIfAvailable();
+                        }
                     }
                 });
             } catch (Exception e) {
@@ -219,6 +237,7 @@ public class CinematicBackgroundManager {
             crossfadeAnimator.cancel();
             crossfadeAnimator = null;
         }
+        pendingPreferredBackground = file;
         long generation = workGeneration.incrementAndGet();
         try {
             pendingDecode = decodeExecutor.submit(() -> {
@@ -299,7 +318,12 @@ public class CinematicBackgroundManager {
         workGeneration.incrementAndGet();
         // On cold start, show the first real wallpaper as soon as the local queue is ready.
         // Once one has loaded, preserve the current image and resume normal timed rotation.
-        if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
+        if (pendingPreferredBackground != null && !pendingPreferredBackground.isFile()) {
+            pendingPreferredBackground = null;
+        }
+        if (pendingPreferredBackground != null) {
+            loadLocalBackgrounds(pendingPreferredBackground);
+        } else if (!hasRealWallpaperLoaded && !queue.isEmpty()) {
             rotateToNext();
         } else {
             scheduleRotationIfAvailable();
@@ -396,6 +420,10 @@ public class CinematicBackgroundManager {
                 back.setAlpha(1f);
                 isFrontA = !isFrontA;
                 hasRealWallpaperLoaded = true;
+                if (pendingPreferredBackground != null
+                        && pendingPreferredBackground.equals(sourceFile)) {
+                    pendingPreferredBackground = null;
+                }
                 scheduleRotationIfAvailable();
                 if (crossfadeAnimator == crossfade) crossfadeAnimator = null;
                 if (isVisible && !destroyed) notifyBackgroundChanged();

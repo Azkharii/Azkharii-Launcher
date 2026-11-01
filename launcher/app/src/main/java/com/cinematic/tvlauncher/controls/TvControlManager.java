@@ -18,8 +18,6 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.Locale;
 import android.content.Intent;
 import android.content.ActivityNotFoundException;
@@ -75,7 +73,8 @@ public class TvControlManager {
     private volatile long backgroundThumbnailGeneration;
     private volatile long backgroundImportGeneration;
     private volatile boolean managerPaused = true;
-    private volatile boolean importsChangedWhilePaused;
+    private final DeferredImportQueue<Uri> pendingBackgroundImports = new DeferredImportQueue<>();
+    private volatile boolean backgroundImportInProgress;
     private android.widget.ScrollView activeBackgroundScroll;
     private android.widget.LinearLayout activeBackgroundList;
     private volatile InputStream activeImportInput;
@@ -161,10 +160,7 @@ public class TvControlManager {
     /** Register connectivity and resume visible-only photo work while the launcher is foreground. */
     public void onResume() {
         managerPaused = false;
-        if (importsChangedWhilePaused) {
-            importsChangedWhilePaused = false;
-            if (backgroundManager != null) backgroundManager.loadLocalBackgrounds();
-        }
+        startPendingBackgroundImports();
         if (activeBackgroundScroll != null && activeBackgroundList != null) {
             final long generation = ++backgroundThumbnailGeneration;
             activeBackgroundScroll.setOnScrollChangeListener((View view, int scrollX, int scrollY,
@@ -193,6 +189,7 @@ public class TvControlManager {
         managerPaused = true;
         ++backgroundThumbnailGeneration;
         ++backgroundImportGeneration;
+        backgroundImportInProgress = false;
         cancelTrackedTasks(backgroundThumbnailTasks, BACKGROUND_THUMBNAIL_EXECUTOR);
         cancelTrackedTasks(backgroundImportTasks, BACKGROUND_IMPORT_EXECUTOR);
         InputStream importInput = activeImportInput;
@@ -702,7 +699,10 @@ public class TvControlManager {
                 Uri uri = clip.getItemAt(i).getUri();
                 if (uri != null) selected.add(uri);
             }
-        } else if (data.getData() != null) {
+        }
+        // Some document providers populate both ClipData and the primary data URI,
+        // while others expose only the primary URI even when ClipData is present.
+        if (selected.isEmpty() && data.getData() != null) {
             selected.add(data.getData());
         }
         if (selected.isEmpty()) {
@@ -710,8 +710,7 @@ public class TvControlManager {
             return true;
         }
 
-        // ACTION_OPEN_DOCUMENT can return persistable grants. Keep them where supported so a
-        // delayed worker import never loses access while the picker activity is gone.
+        // ACTION_OPEN_DOCUMENT can return persistable grants. Keep them where supported.
         int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION
                 | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
         if ((flags & Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
@@ -720,51 +719,84 @@ public class TvControlManager {
                     activity.getContentResolver().takePersistableUriPermission(
                             uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 } catch (SecurityException ignored) {
-                    // Immediate import still works for providers that do not support persistence.
+                    // The URI remains usable for the immediate import when persistence is unsupported.
                 }
             }
         }
 
+        // Android may deliver onActivityResult before Activity.onResume. Queue the URIs first;
+        // the foreground worker is started by onResume if the manager is still paused.
+        pendingBackgroundImports.addAll(selected);
+        if (managerPaused) {
+            Log.i(TAG, "Queued " + selected.size() + " selected wallpaper(s) until launcher resume.");
+        } else {
+            startPendingBackgroundImports();
+        }
+        return true;
+    }
+
+    /** Starts only while foreground; pending URIs survive pause/cancellation and retry on resume. */
+    private void startPendingBackgroundImports() {
+        if (managerPaused || backgroundImportInProgress) return;
+        final List<Uri> selected = pendingBackgroundImports.snapshot(true);
+        if (selected.isEmpty()) return;
+
         final long importGeneration = ++backgroundImportGeneration;
+        backgroundImportInProgress = true;
         try {
             FutureTask<Void> importTask = new FutureTask<>(() -> {
-                File directory = new File(activity.getFilesDir(), "CinematicBackgrounds");
-                if (!directory.exists() && !directory.mkdirs()) {
-                    networkHandler.post(() -> {
-                        if (!managerPaused && importGeneration == backgroundImportGeneration) {
-                            Toast.makeText(activity,
-                                    "No se pudo preparar el almacenamiento privado de fondos.",
-                                    Toast.LENGTH_LONG).show();
+                List<File> importedFiles = new ArrayList<>();
+                List<Uri> completedUris = new ArrayList<>();
+                int failed = 0;
+                try {
+                    File directory = new File(activity.getFilesDir(), "CinematicBackgrounds");
+                    if (!directory.exists() && !directory.mkdirs()) {
+                        throw new java.io.IOException("Could not create private wallpaper directory");
+                    }
+                    for (Uri uri : selected) {
+                        if (managerPaused || importGeneration != backgroundImportGeneration
+                                || Thread.currentThread().isInterrupted()) return;
+                        File imported = copyImage(uri, directory);
+                        if (imported != null) {
+                            importedFiles.add(imported);
+                            completedUris.add(uri);
+                        } else {
+                            failed++;
                         }
-                    });
-                    return;
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Selected wallpaper import did not complete", e);
+                    failed = Math.max(failed, selected.size() - importedFiles.size());
                 }
 
-                int imported = 0;
-                for (int i = 0; i < selected.size(); i++) {
-                    if (managerPaused || importGeneration != backgroundImportGeneration
-                            || Thread.currentThread().isInterrupted()) break;
-                    if (copyImage(selected.get(i), directory, i)) imported++;
-                }
-                final int importedCount = imported;
-                if (managerPaused || importGeneration != backgroundImportGeneration) {
-                    if (importedCount > 0) importsChangedWhilePaused = true;
-                    return;
-                }
+                if (managerPaused || importGeneration != backgroundImportGeneration
+                        || Thread.currentThread().isInterrupted()) return;
+
+                final int failedCount = failed;
                 networkHandler.post(() -> {
-                    if (managerPaused || importGeneration != backgroundImportGeneration) {
-                        if (importedCount > 0) importsChangedWhilePaused = true;
-                        return;
-                    }
-                    if (importedCount > 0) {
-                        if (backgroundManager != null) backgroundManager.loadLocalBackgrounds();
+                    if (managerPaused || importGeneration != backgroundImportGeneration) return;
+                    pendingBackgroundImports.removeAll(completedUris);
+                    backgroundImportInProgress = false;
+
+                    if (!importedFiles.isEmpty()) {
+                        // Apply the first selected image; keep all imported images for rotation.
+                        if (backgroundManager != null) {
+                            backgroundManager.loadLocalBackgrounds(importedFiles.get(0));
+                        }
                         Toast.makeText(activity,
-                                "Fondos guardados dentro de Cinematic TV: " + importedCount,
+                                "Fondos guardados y añadidos a Cinematic TV: " + importedFiles.size(),
                                 Toast.LENGTH_LONG).show();
                     } else {
-                        Toast.makeText(activity,
-                                "No se pudo importar ninguna imagen.",
+                        Toast.makeText(activity, "No se pudo importar ninguna imagen.",
                                 Toast.LENGTH_LONG).show();
+                    }
+                    if (failedCount > 0) {
+                        Toast.makeText(activity, "No se pudieron importar " + failedCount
+                                + " imagen(es). Se conservaron para reintentar al volver al launcher.",
+                                Toast.LENGTH_LONG).show();
+                    } else {
+                        // A second picker result may have arrived while this batch was running.
+                        startPendingBackgroundImports();
                     }
                 });
             }, null);
@@ -772,13 +804,14 @@ public class TvControlManager {
             backgroundImportTasks.add(importTask);
             BACKGROUND_IMPORT_EXECUTOR.execute(importTask);
         } catch (java.util.concurrent.RejectedExecutionException e) {
-            Toast.makeText(activity, "No se pudo iniciar la importación de fondos.", Toast.LENGTH_LONG).show();
+            backgroundImportInProgress = false;
+            Log.w(TAG, "Wallpaper import executor rejected the task", e);
+            Toast.makeText(activity, "No se pudo iniciar la importación de fondos.",
+                    Toast.LENGTH_LONG).show();
         }
-        return true;
     }
 
-    private boolean copyImage(Uri uri, File directory, int index) {
-        String stamp = new SimpleDateFormat("yyyyMMdd_HHmmss_SSS", Locale.US).format(new Date());
+    private File copyImage(Uri uri, File directory) {
         String mimeType = activity.getContentResolver().getType(uri);
         String extension = "jpg";
         if ("image/png".equalsIgnoreCase(mimeType)) extension = "png";
@@ -808,18 +841,28 @@ public class TvControlManager {
         if (readableName.length() > 56) readableName = readableName.substring(0, 56);
         if (readableName.isEmpty()) readableName = "fondo";
 
-        File target = new File(directory, "custom_background_" + stamp + "_" + index
+        String stableKey;
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(uri.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder key = new StringBuilder();
+            for (int i = 0; i < 8; i++) key.append(String.format(Locale.ROOT, "%02x", digest[i] & 0xff));
+            stableKey = key.toString();
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            stableKey = Integer.toHexString(uri.toString().hashCode());
+        }
+        File target = new File(directory, "custom_background_" + stableKey
                 + "_" + readableName + "." + extension);
         InputStream opened = null;
         try {
-            if (Thread.currentThread().isInterrupted()) return false;
+            if (Thread.currentThread().isInterrupted()) return null;
             opened = activity.getContentResolver().openInputStream(uri);
             activeImportInput = opened;
             try (InputStream input = opened) {
                 if (Thread.currentThread().isInterrupted()) {
                     throw new java.io.InterruptedIOException("Background import cancelled");
                 }
-                if (input == null) return false;
+                if (input == null) return null;
                 try (OutputStream output = new FileOutputStream(target)) {
                     byte[] buffer = new byte[16 * 1024];
                     int read;
@@ -830,14 +873,14 @@ public class TvControlManager {
                         output.write(buffer, 0, read);
                     }
                 }
-                return target.isFile() && target.length() > 0L;
+                return target.isFile() && target.length() > 0L ? target : null;
             }
         } catch (Exception e) {
             if (!Thread.currentThread().isInterrupted()) {
                 Log.w(TAG, "Unable to import selected background image", e);
             }
             if (target.exists()) target.delete();
-            return false;
+            return null;
         } finally {
             if (activeImportInput == opened) activeImportInput = null;
         }
