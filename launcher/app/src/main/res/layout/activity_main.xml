@@ -18,8 +18,7 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
-        android:alpha="0"
-        android:src="@drawable/default_wallpaper" />
+        android:alpha="0" />
 
     <!-- Top and Bottom Scrim Gradients (Annex C.1) -->
     <View
